@@ -1011,12 +1011,13 @@ function getWave(idx) {
 }
 
 function startWave() {
-  if (G.spawnQueue.length || G.enemies.length) return;
+  if (G.spawnQueue.length || (G.spawnBatches && G.spawnBatches.length) || G.enemies.length) return;
   // test mode: only one wave, then back to setup
   if (G.run.testMode) {
     if (G.wave >= 1) { showTestSetup(); return; }
     const pathCount = (MAPS[G.map] || MAPS.donjon).paths.length;
-    G.spawnQueue = (G.run.testWave || []).map((t, i) => ({ type:t, hpMul:1, pathIdx: i % pathCount }));
+    G.spawnQueue = [];
+    G.spawnBatches = buildInterleavedBatches(G.run.testWave || [], pathCount, 10);
     G.spawnTimer = 0;
     G.wave++;
     G.run._waveStartHp = G.hp;
@@ -1042,7 +1043,7 @@ function startWave() {
 
 function updateWavePreview() {
   const el = document.getElementById('wavePreview');
-  if (G.spawnQueue.length || G.enemies.length || !G.running || G.gameOver) {
+  if (G.spawnQueue.length || (G.spawnBatches && G.spawnBatches.length) || G.enemies.length || !G.running || G.gameOver) {
     el.classList.add('hidden');
     return;
   }
@@ -1059,7 +1060,48 @@ function updateWavePreview() {
   el.classList.remove('hidden');
 }
 
+function buildInterleavedBatches(typeList, pathCount, ticks) {
+  // count per type
+  const counts = {};
+  for (const t of typeList) counts[t] = (counts[t] || 0) + 1;
+  const types = Object.keys(counts);
+  const cumulative = {};
+  for (const t of types) cumulative[t] = 0;
+  const pathByType = {};
+  for (const t of types) pathByType[t] = 0;
+  const batches = [];
+  for (let i = 1; i <= ticks; i++) {
+    const batch = [];
+    for (const t of types) {
+      const target = Math.round(i / ticks * counts[t]);
+      const toSpawn = target - cumulative[t];
+      for (let j = 0; j < toSpawn; j++) {
+        const pi = pathByType[t] % pathCount;
+        pathByType[t]++;
+        batch.push({ type: t, hpMul: 1, pathIdx: pi });
+      }
+      cumulative[t] = target;
+    }
+    // shuffle within batch so types don't always appear in same order
+    for (let k = batch.length - 1; k > 0; k--) {
+      const r = Math.floor(Math.random() * (k + 1));
+      [batch[k], batch[r]] = [batch[r], batch[k]];
+    }
+    if (batch.length) batches.push(batch);
+  }
+  return batches;
+}
+
 function updateSpawning(dt) {
+  if (G.spawnBatches && G.spawnBatches.length) {
+    G.spawnTimer -= dt;
+    if (G.spawnTimer <= 0) {
+      const batch = G.spawnBatches.shift();
+      for (const s of batch) G.enemies.push(new Enemy(s.type, s.hpMul, s.pathIdx || 0));
+      G.spawnTimer = 0.1;
+    }
+    return;
+  }
   if (!G.spawnQueue.length) return;
   G.spawnTimer -= dt;
   while (G.spawnTimer <= 0 && G.spawnQueue.length) {
@@ -1740,7 +1782,7 @@ function startTestRun() {
   G.map = 'test';
   G.enemies = []; G.towers = []; G.projectiles = []; G.particles = [];
   G.occupied.clear();
-  G.spawnQueue = []; G.wave = 0;
+  G.spawnQueue = []; G.spawnBatches = []; G.wave = 0;
   layout();
   G.gold = 999999;
   G.hp = 999;
@@ -1982,7 +2024,7 @@ function startRun() {
   // reset gameplay state
   G.enemies = []; G.towers = []; G.projectiles = []; G.particles = [];
   G.occupied.clear();
-  G.spawnQueue = []; G.wave = 0;
+  G.spawnQueue = []; G.spawnBatches = []; G.wave = 0;
   layout();
   const m = G.run.mods;
   G.gold = Math.floor(120 * m.goldMul) + (m.startGold || 0);
@@ -2196,7 +2238,7 @@ function update(dt) {
   G.enemies = G.enemies.filter(e => !e.dead && !e.reached);
   G.projectiles = G.projectiles.filter(p => !p.dead);
   // wave done? in endless mode, never auto-end
-  const waveDone = !G.spawnQueue.length && !G.enemies.length;
+  const waveDone = !G.spawnQueue.length && !(G.spawnBatches && G.spawnBatches.length) && !G.enemies.length;
   if (waveDone) {
     document.getElementById('waveBtn').classList.remove('hidden');
     updateWavePreview();
