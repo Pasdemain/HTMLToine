@@ -127,8 +127,10 @@
 'use strict';
 
 // ===== Constants =====
-const COLS = 9;
-const ROWS = 14;
+const BASE_COLS = 9;
+const BASE_ROWS = 14;
+let COLS = BASE_COLS;
+let ROWS = BASE_ROWS;
 
 const MAPS = {
   donjon: {
@@ -192,6 +194,46 @@ const MAPS = {
       [{c:-1,r:10},{c:4,r:10},{c:4,r:4},{c:9,r:4}]
     ],
     castleEnds: [{ c:8, r:10 }, { c:8, r:4 }]
+  },
+  citadelle: {
+    name: 'CITADELLE BRISEE',
+    icon: '\u{1F3DB}',
+    desc: 'Grande carte 14x20. Deux entrees, longs detours.',
+    large: true, cols: 14, rows: 20,
+    paths: [
+      [{c:-1,r:2},{c:5,r:2},{c:5,r:6},{c:2,r:6},{c:2,r:11},
+       {c:8,r:11},{c:8,r:15},{c:11,r:15},{c:11,r:18},{c:14,r:18}],
+      [{c:14,r:2},{c:11,r:2},{c:11,r:8},{c:7,r:8},{c:7,r:13},
+       {c:4,r:13},{c:4,r:17},{c:11,r:17},{c:11,r:18},{c:14,r:18}]
+    ],
+    castleEnds: [{ c:13, r:18 }]
+  },
+  forteresse: {
+    name: 'FORTERESSE',
+    icon: '\u{1F3F0}',
+    desc: 'Grande carte 16x22. Trois entrees, plusieurs gorges etroites.',
+    large: true, cols: 16, rows: 22,
+    paths: [
+      [{c:-1,r:2},{c:5,r:2},{c:5,r:8},{c:9,r:8},{c:9,r:14},
+       {c:13,r:14},{c:13,r:20},{c:16,r:20}],
+      [{c:16,r:2},{c:11,r:2},{c:11,r:6},{c:14,r:6},{c:14,r:14},
+       {c:13,r:14},{c:13,r:20},{c:16,r:20}],
+      [{c:-1,r:18},{c:6,r:18},{c:6,r:14},{c:13,r:14},{c:13,r:20},{c:16,r:20}]
+    ],
+    castleEnds: [{ c:15, r:20 }]
+  },
+  domaine: {
+    name: 'GRAND DOMAINE',
+    icon: '\u{1F30C}',
+    desc: 'Tres grande 18x24. Quatre entrees, donjon central.',
+    large: true, cols: 18, rows: 24,
+    paths: [
+      [{c:-1,r:3},{c:6,r:3},{c:6,r:11},{c:9,r:11}],
+      [{c:18,r:3},{c:11,r:3},{c:11,r:11},{c:9,r:11}],
+      [{c:-1,r:20},{c:6,r:20},{c:6,r:13},{c:9,r:13},{c:9,r:11}],
+      [{c:18,r:20},{c:11,r:20},{c:11,r:13},{c:9,r:13},{c:9,r:11}]
+    ],
+    castleEnds: [{ c:9, r:11 }]
   }
 };
 
@@ -630,11 +672,15 @@ function layout() {
   c.height = Math.floor(rect.height * dpr);
   G.ctx.setTransform(dpr,0,0,dpr,0,0);
   G.w = rect.width; G.h = rect.height;
-  G.cell = Math.min(G.w / COLS, G.h / ROWS);
+  // map-specific dimensions
+  const map = MAPS[G.map] || MAPS.donjon;
+  COLS = map.cols || BASE_COLS;
+  ROWS = map.rows || BASE_ROWS;
+  // cell size always sized from BASE so large maps overflow
+  G.cell = Math.min(G.w / BASE_COLS, G.h / BASE_ROWS);
   G.ox = (G.w - G.cell * COLS) / 2;
   G.oy = (G.h - G.cell * ROWS) / 2;
   resetCamera();
-  const map = MAPS[G.map] || MAPS.donjon;
   G.pathsPx = map.paths.map(path => path.map(p => ({
     x: G.ox + (p.c + 0.5) * G.cell,
     y: G.oy + (p.r + 0.5) * G.cell
@@ -643,9 +689,17 @@ function layout() {
 }
 
 function resetCamera() {
-  G.cam.scale = G.cam.defaultScale = 1;
-  G.cam.x = 0;
-  G.cam.y = 0;
+  // auto-fit camera so the whole field is initially visible
+  const fieldW = G.cell * COLS;
+  const fieldH = G.cell * ROWS;
+  const fitX = G.w / fieldW;
+  const fitY = G.h / fieldH;
+  const fit = Math.min(1, fitX, fitY);
+  G.cam.minScale = Math.min(0.4, fit * 0.85);
+  G.cam.scale = G.cam.defaultScale = fit;
+  // center the field in the viewport
+  G.cam.x = (G.w - fieldW * fit) / 2 - G.ox * fit;
+  G.cam.y = (G.h - fieldH * fit) / 2 - G.oy * fit;
 }
 
 function clamp(v, mn, mx) { return Math.max(mn, Math.min(mx, v)); }
@@ -1673,11 +1727,14 @@ function showMapSelect() {
   for (const [k, mp] of Object.entries(MAPS)) {
     const sel = G.run.map === k ? 'selected' : '';
     const spawns = mp.paths.length;
+    const sizeBadge = mp.large
+      ? `<span style="font-size:9px;color:#fc6;background:#420;padding:1px 4px;border-radius:3px;margin-left:4px">GRANDE</span>`
+      : '';
     cards += `
       <div class="pick-card ${sel}" data-map="${k}" style="--c:#4af">
         <div class="pi">${mp.icon}</div>
         <div class="ptxt">
-          <div class="pname">${mp.name} <span style="font-size:9px;color:#8af">${spawns} entree${spawns>1?'s':''}</span></div>
+          <div class="pname">${mp.name} <span style="font-size:9px;color:#8af">${spawns} entree${spawns>1?'s':''}</span>${sizeBadge}</div>
           <div class="pdesc">${mp.desc}</div>
         </div>
       </div>`;
