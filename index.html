@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>HTMLToine - Cyber Castle Defense</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; user-select: none; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0a14; font-family: 'Segoe UI', Roboto, sans-serif; color: #e8f0ff; touch-action: none; }
+  #game { position: fixed; inset: 0; display: flex; flex-direction: column; }
+  #topBar { display: flex; justify-content: space-around; align-items: center; padding: 8px 6px; background: linear-gradient(180deg, #1a1530 0%, #0d0a1f 100%); border-bottom: 2px solid #4af; box-shadow: 0 0 12px #4af6; z-index: 5; }
+  .stat { display: flex; flex-direction: column; align-items: center; font-size: 11px; letter-spacing: 1px; color: #8af; text-transform: uppercase; }
+  .stat b { font-size: 18px; color: #fff; text-shadow: 0 0 6px currentColor; }
+  .stat.hp b { color: #f55; }
+  .stat.gold b { color: #fc3; }
+  .stat.wave b { color: #5fa; }
+  #canvas { flex: 1; display: block; touch-action: none; image-rendering: crisp-edges; }
+  #shop { display: flex; gap: 6px; padding: 8px; background: linear-gradient(0deg, #1a1530 0%, #0d0a1f 100%); border-top: 2px solid #4af; box-shadow: 0 0 12px #4af6; z-index: 5; }
+  .tower { flex: 1; padding: 8px 4px; background: #1c1838; border: 2px solid #345; border-radius: 8px; text-align: center; cursor: pointer; transition: all 0.15s; position: relative; }
+  .tower:active { transform: scale(0.95); }
+  .tower.selected { border-color: #4af; background: #2a3870; box-shadow: 0 0 14px #4af; }
+  .tower.locked { opacity: 0.5; }
+  .tower .icon { font-size: 22px; line-height: 1; margin-bottom: 4px; }
+  .tower .name { font-size: 10px; font-weight: bold; letter-spacing: 0.5px; }
+  .tower .cost { font-size: 11px; color: #fc3; margin-top: 2px; }
+  #msg { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 18px 28px; background: rgba(10,10,30,0.95); border: 2px solid #4af; border-radius: 12px; text-align: center; box-shadow: 0 0 30px #4af; z-index: 10; max-width: 80%; }
+  #msg h1 { font-size: 22px; color: #4af; margin-bottom: 8px; text-shadow: 0 0 10px #4af; }
+  #msg p { font-size: 13px; margin-bottom: 12px; line-height: 1.5; color: #cde; }
+  #msg button { padding: 10px 22px; font-size: 14px; font-weight: bold; background: linear-gradient(180deg, #4af 0%, #26a 100%); color: #fff; border: none; border-radius: 6px; cursor: pointer; letter-spacing: 1px; }
+  #msg button:active { transform: scale(0.96); }
+  #msg.hidden { display: none; }
+  #waveBtn { position: absolute; right: 10px; bottom: 90px; padding: 10px 14px; background: linear-gradient(180deg, #5fa 0%, #283 100%); color: #022; border: none; border-radius: 8px; font-weight: bold; font-size: 13px; box-shadow: 0 0 12px #5fa8; z-index: 4; cursor: pointer; }
+  #waveBtn:active { transform: scale(0.95); }
+  #waveBtn.hidden { display: none; }
+  #sellBtn { position: absolute; left: 10px; bottom: 90px; padding: 10px 14px; background: linear-gradient(180deg, #f66 0%, #822 100%); color: #fff; border: none; border-radius: 8px; font-weight: bold; font-size: 13px; box-shadow: 0 0 12px #f668; z-index: 4; cursor: pointer; }
+  #sellBtn:active { transform: scale(0.95); }
+  #sellBtn.hidden { display: none; }
+</style>
+</head>
+<body>
+<div id="game">
+  <div id="topBar">
+    <div class="stat hp"><span>VIE</span><b id="hp">20</b></div>
+    <div class="stat gold"><span>OR</span><b id="gold">120</b></div>
+    <div class="stat wave"><span>VAGUE</span><b id="wave">0</b></div>
+  </div>
+  <canvas id="canvas"></canvas>
+  <div id="shop"></div>
+  <button id="waveBtn">VAGUE SUIVANTE</button>
+  <button id="sellBtn" class="hidden">VENDRE</button>
+  <div id="msg">
+    <h1>CYBER CASTLE DEFENSE</h1>
+    <p>Defendez le donjon contre les hordes cyber-medievales. Touchez le terrain pour placer une tour.</p>
+    <button id="startBtn">COMMENCER</button>
+  </div>
+</div>
+<script>
+'use strict';
+
+// ===== Constants =====
+const COLS = 9;
+const ROWS = 14;
+const PATH = [
+  {c:-1,r:1},{c:3,r:1},{c:3,r:4},{c:1,r:4},{c:1,r:7},
+  {c:6,r:7},{c:6,r:10},{c:2,r:10},{c:2,r:12},{c:9,r:12}
+];
+
+const TOWER_TYPES = {
+  archer:  { name:'ARCHER',  icon:'\u{1F3F9}', cost:30, range:2.4, dmg:12, rate:1.0, color:'#cb8', proj:'#fea', desc:'Medieval' },
+  laser:   { name:'LASER',   icon:'⚡',     cost:55, range:2.8, dmg:7,  rate:0.25, color:'#4af', proj:'#9ef', desc:'Beam'    },
+  plasma:  { name:'PLASMA',  icon:'\u{1F4A5}', cost:90, range:2.0, dmg:30, rate:1.6, color:'#f4a', proj:'#fcf', aoe:0.9, desc:'AOE' },
+  tesla:   { name:'TESLA',   icon:'\u{1F300}', cost:140, range:2.2, dmg:18, rate:0.9, color:'#ff5', proj:'#ffc', chain:3, desc:'Chain' }
+};
+
+const ENEMY_TYPES = {
+  goblin: { hp:25,  speed:1.6, gold:6,  color:'#7c5', size:0.32, name:'goblin' },
+  knight: { hp:70,  speed:1.2, gold:12, color:'#aab', size:0.38, name:'knight' },
+  drone:  { hp:45,  speed:2.2, gold:10, color:'#4cf', size:0.30, name:'drone'  },
+  ogre:   { hp:220, speed:0.8, gold:30, color:'#a73', size:0.46, name:'ogre'   },
+  boss:   { hp:900, speed:0.7, gold:120,color:'#f3f', size:0.55, name:'boss'   }
+};
+
+// ===== Game State =====
+const G = {
+  canvas:null, ctx:null, w:0, h:0, cell:0, ox:0, oy:0,
+  hp:20, gold:120, wave:0, running:false, gameOver:false, victory:false,
+  enemies:[], towers:[], projectiles:[], particles:[],
+  pathPx:[], occupied:new Set(),
+  spawnQueue:[], spawnTimer:0,
+  selectedType:null, selectedTower:null,
+  hoverCell:null,
+  lastTime:0, time:0
+};
+
+// ===== Layout =====
+function layout() {
+  const c = G.canvas;
+  const rect = c.getBoundingClientRect();
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  c.width  = Math.floor(rect.width * dpr);
+  c.height = Math.floor(rect.height * dpr);
+  G.ctx.setTransform(dpr,0,0,dpr,0,0);
+  G.w = rect.width; G.h = rect.height;
+  G.cell = Math.min(G.w / COLS, G.h / ROWS);
+  G.ox = (G.w - G.cell * COLS) / 2;
+  G.oy = (G.h - G.cell * ROWS) / 2;
+  G.pathPx = PATH.map(p => ({
+    x: G.ox + (p.c + 0.5) * G.cell,
+    y: G.oy + (p.r + 0.5) * G.cell
+  }));
+  computePathCells();
+}
+
+function computePathCells() {
+  G.pathCells = new Set();
+  for (let i = 0; i < PATH.length - 1; i++) {
+    const a = PATH[i], b = PATH[i+1];
+    const dc = Math.sign(b.c - a.c), dr = Math.sign(b.r - a.r);
+    let c = a.c, r = a.r;
+    while (c !== b.c || r !== b.r) {
+      if (c >= 0 && c < COLS && r >= 0 && r < ROWS) G.pathCells.add(c+','+r);
+      c += dc; r += dr;
+    }
+    if (b.c >= 0 && b.c < COLS && b.r >= 0 && b.r < ROWS) G.pathCells.add(b.c+','+b.r);
+  }
+}
+
+function cellAt(x, y) {
+  const c = Math.floor((x - G.ox) / G.cell);
+  const r = Math.floor((y - G.oy) / G.cell);
+  if (c < 0 || c >= COLS || r < 0 || r >= ROWS) return null;
+  return { c, r };
+}
+function cellCenter(c, r) {
+  return { x: G.ox + (c + 0.5) * G.cell, y: G.oy + (r + 0.5) * G.cell };
+}
+function isPath(c, r) { return G.pathCells.has(c+','+r); }
+function isOccupied(c, r) { return G.occupied.has(c+','+r); }
+
+// ===== Enemy =====
+class Enemy {
+  constructor(type, hpMul) {
+    const t = ENEMY_TYPES[type];
+    this.type = type;
+    this.maxHp = t.hp * hpMul;
+    this.hp = this.maxHp;
+    this.speed = t.speed;
+    this.gold = t.gold;
+    this.color = t.color;
+    this.size = t.size;
+    this.seg = 0;
+    this.t = 0;
+    this.x = G.pathPx[0].x;
+    this.y = G.pathPx[0].y;
+    this.dead = false;
+    this.reached = false;
+    this.flash = 0;
+    this.slow = 0;
+  }
+  update(dt) {
+    if (this.dead || this.reached) return;
+    if (this.flash > 0) this.flash -= dt;
+    let speed = this.speed;
+    if (this.slow > 0) { speed *= 0.5; this.slow -= dt; }
+    let remaining = speed * dt;
+    while (remaining > 0 && this.seg < G.pathPx.length - 1) {
+      const a = G.pathPx[this.seg], b = G.pathPx[this.seg + 1];
+      const segLen = Math.hypot(b.x - a.x, b.y - a.y) / G.cell;
+      const stepLen = remaining;
+      const newT = this.t + stepLen / segLen;
+      if (newT >= 1) {
+        remaining -= (1 - this.t) * segLen;
+        this.seg++;
+        this.t = 0;
+      } else {
+        this.t = newT;
+        remaining = 0;
+      }
+    }
+    if (this.seg >= G.pathPx.length - 1) {
+      this.reached = true;
+      G.hp--;
+      spawnParticles(this.x, this.y, '#f55', 8);
+      return;
+    }
+    const a = G.pathPx[this.seg], b = G.pathPx[this.seg + 1];
+    this.x = a.x + (b.x - a.x) * this.t;
+    this.y = a.y + (b.y - a.y) * this.t;
+  }
+  damage(d) {
+    this.hp -= d;
+    this.flash = 0.1;
+    if (this.hp <= 0 && !this.dead) {
+      this.dead = true;
+      G.gold += this.gold;
+      spawnParticles(this.x, this.y, this.color, 10);
+    }
+  }
+  draw(ctx) {
+    const r = this.size * G.cell;
+    // shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.beginPath(); ctx.ellipse(this.x, this.y + r*0.6, r*0.8, r*0.3, 0, 0, Math.PI*2); ctx.fill();
+    // body
+    ctx.fillStyle = this.flash > 0 ? '#fff' : this.color;
+    ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+    if (this.type === 'drone') {
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const a = (i/6)*Math.PI*2 + G.time*2;
+        const px = this.x + Math.cos(a)*r, py = this.y + Math.sin(a)*r;
+        i ? ctx.lineTo(px,py) : ctx.moveTo(px,py);
+      }
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+    } else if (this.type === 'knight') {
+      ctx.fillRect(this.x-r, this.y-r, r*2, r*2);
+      ctx.strokeRect(this.x-r, this.y-r, r*2, r*2);
+      ctx.fillStyle = '#f55'; ctx.fillRect(this.x-r*0.4, this.y-r*0.5, r*0.8, r*0.3);
+    } else if (this.type === 'boss') {
+      ctx.beginPath(); ctx.arc(this.x, this.y, r, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#ff0';
+      for (let i = 0; i < 5; i++) {
+        const a = (i/5)*Math.PI*2 - Math.PI/2 + G.time;
+        ctx.beginPath();
+        ctx.arc(this.x+Math.cos(a)*r*0.6, this.y+Math.sin(a)*r*0.6, r*0.15, 0, Math.PI*2);
+        ctx.fill();
+      }
+    } else {
+      ctx.beginPath(); ctx.arc(this.x, this.y, r, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    }
+    // hp bar
+    const bw = r * 2, bh = 4;
+    ctx.fillStyle = '#400'; ctx.fillRect(this.x - bw/2, this.y - r - 8, bw, bh);
+    ctx.fillStyle = '#5f5'; ctx.fillRect(this.x - bw/2, this.y - r - 8, bw * (this.hp/this.maxHp), bh);
+  }
+}
+
+// ===== Wave System =====
+const WAVES = [
+  ['goblin','goblin','goblin','goblin','goblin'],
+  ['goblin','goblin','goblin','knight','goblin','knight'],
+  ['drone','drone','drone','drone','goblin','goblin'],
+  ['knight','knight','knight','goblin','goblin','goblin','goblin'],
+  ['drone','drone','knight','knight','drone','knight'],
+  ['ogre','goblin','goblin','goblin','goblin'],
+  ['drone','drone','drone','drone','drone','drone','drone','drone'],
+  ['knight','knight','knight','knight','ogre','knight'],
+  ['ogre','ogre','knight','drone','drone','knight'],
+  ['boss','knight','knight','goblin','goblin','goblin']
+];
+
+function startWave() {
+  if (G.spawnQueue.length || G.enemies.length) return;
+  if (G.wave >= WAVES.length) return;
+  const w = WAVES[G.wave];
+  const hpMul = 1 + G.wave * 0.15;
+  G.spawnQueue = w.map(t => ({ type:t, hpMul }));
+  G.spawnTimer = 0;
+  G.wave++;
+  document.getElementById('waveBtn').classList.add('hidden');
+}
+
+function updateSpawning(dt) {
+  if (!G.spawnQueue.length) return;
+  G.spawnTimer -= dt;
+  if (G.spawnTimer <= 0) {
+    const s = G.spawnQueue.shift();
+    G.enemies.push(new Enemy(s.type, s.hpMul));
+    G.spawnTimer = 0.7;
+  }
+}
+
+// ===== Tower =====
+class Tower {
+  constructor(c, r, type) {
+    this.c = c; this.r = r; this.type = type;
+    const def = TOWER_TYPES[type];
+    this.def = def;
+    const center = cellCenter(c, r);
+    this.x = center.x; this.y = center.y;
+    this.range = def.range * G.cell;
+    this.cooldown = 0;
+    this.angle = -Math.PI/2;
+    this.level = 1;
+    this.totalCost = def.cost;
+    this.fireFlash = 0;
+  }
+  upgradeCost() { return Math.floor(this.def.cost * (1 + this.level * 0.8)); }
+  sellValue() { return Math.floor(this.totalCost * 0.6); }
+  upgrade() {
+    const cost = this.upgradeCost();
+    if (G.gold < cost || this.level >= 3) return false;
+    G.gold -= cost;
+    this.totalCost += cost;
+    this.level++;
+    this.range *= 1.15;
+    return true;
+  }
+  effDmg() { return this.def.dmg * (1 + (this.level - 1) * 0.6); }
+  effRate() { return this.def.rate * Math.pow(0.85, this.level - 1); }
+  findTarget() {
+    let best = null, bestProgress = -1;
+    for (const e of G.enemies) {
+      if (e.dead || e.reached) continue;
+      const dx = e.x - this.x, dy = e.y - this.y;
+      if (dx*dx + dy*dy > this.range*this.range) continue;
+      const prog = e.seg + e.t;
+      if (prog > bestProgress) { bestProgress = prog; best = e; }
+    }
+    return best;
+  }
+  update(dt) {
+    if (this.fireFlash > 0) this.fireFlash -= dt;
+    this.cooldown -= dt;
+    const tgt = this.findTarget();
+    if (tgt) {
+      this.angle = Math.atan2(tgt.y - this.y, tgt.x - this.x);
+      if (this.cooldown <= 0) {
+        this.fire(tgt);
+        this.cooldown = this.effRate();
+      }
+    }
+  }
+  fire(tgt) {
+    this.fireFlash = 0.1;
+    const dmg = this.effDmg();
+    if (this.type === 'laser') {
+      tgt.damage(dmg);
+      G.projectiles.push(new Beam(this.x, this.y, tgt.x, tgt.y, this.def.proj));
+    } else if (this.type === 'tesla') {
+      const hit = new Set([tgt]);
+      let cur = tgt, prev = { x:this.x, y:this.y };
+      const chain = this.def.chain + (this.level - 1);
+      for (let i = 0; i < chain; i++) {
+        if (!cur) break;
+        cur.damage(dmg);
+        G.projectiles.push(new Beam(prev.x, prev.y, cur.x, cur.y, this.def.proj, true));
+        prev = cur;
+        cur = G.enemies.find(e => !e.dead && !e.reached && !hit.has(e) &&
+          Math.hypot(e.x - prev.x, e.y - prev.y) < G.cell * 1.8);
+        if (cur) hit.add(cur);
+      }
+    } else {
+      G.projectiles.push(new Projectile(this.x, this.y, tgt, this.def.proj, dmg, this.def.aoe || 0));
+    }
+  }
+  draw(ctx) {
+    const s = G.cell * 0.4;
+    // base
+    ctx.fillStyle = '#333a55';
+    ctx.strokeStyle = this.def.color;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(this.x, this.y, s + 4, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    // turret
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.angle);
+    ctx.fillStyle = this.def.color;
+    ctx.fillRect(-2, -3, s + 6, 6);
+    ctx.fillRect(-s*0.5, -s*0.5, s, s);
+    if (this.fireFlash > 0) {
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(s+4, 0, 4, 0, Math.PI*2); ctx.fill();
+    }
+    ctx.restore();
+    // level pips
+    for (let i = 0; i < this.level; i++) {
+      ctx.fillStyle = '#ff5';
+      ctx.beginPath(); ctx.arc(this.x - s + i*5, this.y - s - 6, 2, 0, Math.PI*2); ctx.fill();
+    }
+  }
+}
+
+// ===== Projectile =====
+class Projectile {
+  constructor(x, y, target, color, dmg, aoe) {
+    this.x = x; this.y = y; this.target = target;
+    this.color = color; this.dmg = dmg; this.aoe = aoe;
+    this.speed = 12 * G.cell; this.dead = false;
+  }
+  update(dt) {
+    if (this.target.dead || this.target.reached) {
+      const dx = this.target.x - this.x, dy = this.target.y - this.y;
+      const d = Math.hypot(dx, dy);
+      if (d < 6) { this.dead = true; return; }
+    }
+    const dx = this.target.x - this.x, dy = this.target.y - this.y;
+    const d = Math.hypot(dx, dy);
+    const step = this.speed * dt;
+    if (d <= step) {
+      this.hit();
+    } else {
+      this.x += dx/d * step; this.y += dy/d * step;
+    }
+  }
+  hit() {
+    this.dead = true;
+    if (this.aoe > 0) {
+      const r = this.aoe * G.cell;
+      for (const e of G.enemies) {
+        if (e.dead || e.reached) continue;
+        if (Math.hypot(e.x - this.x, e.y - this.y) <= r) e.damage(this.dmg);
+      }
+      spawnParticles(this.x, this.y, this.color, 14);
+    } else {
+      this.target.damage(this.dmg);
+      spawnParticles(this.x, this.y, this.color, 5);
+    }
+  }
+  draw(ctx) {
+    ctx.fillStyle = this.color;
+    ctx.shadowColor = this.color; ctx.shadowBlur = 8;
+    ctx.beginPath(); ctx.arc(this.x, this.y, 4, 0, Math.PI*2); ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+}
+
+class Beam {
+  constructor(x1, y1, x2, y2, color, jitter) {
+    this.x1=x1; this.y1=y1; this.x2=x2; this.y2=y2;
+    this.color = color; this.life = 0.15; this.jitter = jitter;
+  }
+  update(dt) { this.life -= dt; if (this.life <= 0) this.dead = true; }
+  draw(ctx) {
+    ctx.strokeStyle = this.color;
+    ctx.shadowColor = this.color; ctx.shadowBlur = 10;
+    ctx.lineWidth = 2 + this.life * 10;
+    ctx.beginPath();
+    if (this.jitter) {
+      ctx.moveTo(this.x1, this.y1);
+      const segs = 5;
+      for (let i = 1; i < segs; i++) {
+        const t = i/segs;
+        const x = this.x1 + (this.x2-this.x1)*t + (Math.random()-0.5)*8;
+        const y = this.y1 + (this.y2-this.y1)*t + (Math.random()-0.5)*8;
+        ctx.lineTo(x, y);
+      }
+      ctx.lineTo(this.x2, this.y2);
+    } else {
+      ctx.moveTo(this.x1, this.y1); ctx.lineTo(this.x2, this.y2);
+    }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+}
+
+// ===== Particles =====
+function spawnParticles(x, y, color, n) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const s = 30 + Math.random() * 80;
+    G.particles.push({
+      x, y,
+      vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+      life: 0.5 + Math.random() * 0.4, color
+    });
+  }
+}
+function updateParticles(dt) {
+  for (const p of G.particles) {
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    p.vx *= 0.92; p.vy *= 0.92;
+    p.life -= dt;
+  }
+  G.particles = G.particles.filter(p => p.life > 0);
+}
+function drawParticles(ctx) {
+  for (const p of G.particles) {
+    ctx.globalAlpha = Math.max(0, p.life);
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x - 2, p.y - 2, 4, 4);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ===== Shop UI =====
+function buildShop() {
+  const shop = document.getElementById('shop');
+  shop.innerHTML = '';
+  for (const [key, t] of Object.entries(TOWER_TYPES)) {
+    const el = document.createElement('div');
+    el.className = 'tower';
+    el.dataset.type = key;
+    el.innerHTML = `
+      <div class="icon">${t.icon}</div>
+      <div class="name">${t.name}</div>
+      <div class="cost">${t.cost}</div>
+    `;
+    el.addEventListener('click', () => selectTowerType(key));
+    shop.appendChild(el);
+  }
+}
+
+function selectTowerType(key) {
+  G.selectedType = (G.selectedType === key) ? null : key;
+  G.selectedTower = null;
+  updateShopUI();
+  document.getElementById('sellBtn').classList.add('hidden');
+}
+
+function updateShopUI() {
+  const shop = document.getElementById('shop');
+  for (const el of shop.children) {
+    const t = TOWER_TYPES[el.dataset.type];
+    el.classList.toggle('selected', G.selectedType === el.dataset.type);
+    el.classList.toggle('locked', G.gold < t.cost);
+  }
+}
+
+// ===== Input =====
+function getEventPos(e) {
+  const rect = G.canvas.getBoundingClientRect();
+  const t = e.touches ? e.touches[0] : e;
+  return { x: t.clientX - rect.left, y: t.clientY - rect.top };
+}
+
+function onTap(x, y) {
+  const cell = cellAt(x, y);
+  if (!cell) return;
+  // tap existing tower → select
+  const existing = G.towers.find(t => t.c === cell.c && t.r === cell.r);
+  if (existing) {
+    G.selectedTower = (G.selectedTower === existing) ? null : existing;
+    G.selectedType = null;
+    updateShopUI();
+    document.getElementById('sellBtn').classList.toggle('hidden', !G.selectedTower);
+    return;
+  }
+  // place new tower
+  if (G.selectedType) {
+    if (isPath(cell.c, cell.r) || isOccupied(cell.c, cell.r)) return;
+    const def = TOWER_TYPES[G.selectedType];
+    if (G.gold < def.cost) return;
+    G.gold -= def.cost;
+    const tower = new Tower(cell.c, cell.r, G.selectedType);
+    G.towers.push(tower);
+    G.occupied.add(cell.c+','+cell.r);
+    spawnParticles(tower.x, tower.y, def.color, 12);
+    updateShopUI();
+    return;
+  }
+  // deselect
+  G.selectedTower = null;
+  document.getElementById('sellBtn').classList.add('hidden');
+}
+
+function setupInput() {
+  const c = G.canvas;
+  let touchStart = null;
+  c.addEventListener('touchstart', e => {
+    e.preventDefault();
+    const p = getEventPos(e);
+    touchStart = { ...p, t: performance.now() };
+    G.hoverCell = cellAt(p.x, p.y);
+  }, { passive: false });
+  c.addEventListener('touchmove', e => {
+    e.preventDefault();
+    const p = getEventPos(e);
+    G.hoverCell = cellAt(p.x, p.y);
+  }, { passive: false });
+  c.addEventListener('touchend', e => {
+    e.preventDefault();
+    if (!touchStart) return;
+    const dt = performance.now() - touchStart.t;
+    const p = G.hoverCell ? cellCenter(G.hoverCell.c, G.hoverCell.r) : touchStart;
+    if (dt < 500) onTap(touchStart.x, touchStart.y);
+    G.hoverCell = null;
+    touchStart = null;
+  }, { passive: false });
+  c.addEventListener('mousedown', e => {
+    const p = getEventPos(e);
+    G.hoverCell = cellAt(p.x, p.y);
+    onTap(p.x, p.y);
+  });
+  c.addEventListener('mousemove', e => {
+    const p = getEventPos(e);
+    G.hoverCell = cellAt(p.x, p.y);
+  });
+
+  document.getElementById('waveBtn').addEventListener('click', () => {
+    if (!G.running) return;
+    startWave();
+  });
+
+  document.getElementById('sellBtn').addEventListener('click', () => {
+    if (!G.selectedTower) return;
+    const t = G.selectedTower;
+    G.gold += t.sellValue();
+    G.occupied.delete(t.c+','+t.r);
+    G.towers = G.towers.filter(x => x !== t);
+    spawnParticles(t.x, t.y, '#fc3', 10);
+    G.selectedTower = null;
+    document.getElementById('sellBtn').classList.add('hidden');
+    updateShopUI();
+  });
+
+  document.getElementById('startBtn').addEventListener('click', () => {
+    document.getElementById('msg').classList.add('hidden');
+    G.running = true;
+    document.getElementById('waveBtn').classList.remove('hidden');
+  });
+
+  window.addEventListener('resize', layout);
+  window.addEventListener('orientationchange', () => setTimeout(layout, 200));
+}
+
+function showMessage(title, body, btnLabel, onClick) {
+  const m = document.getElementById('msg');
+  m.querySelector('h1').textContent = title;
+  m.querySelector('p').textContent = body;
+  const btn = m.querySelector('button');
+  btn.textContent = btnLabel;
+  btn.onclick = onClick;
+  m.classList.remove('hidden');
+}
+
+// ===== Render =====
+function drawBackground(ctx) {
+  // gradient sky
+  const g = ctx.createLinearGradient(0, 0, 0, G.h);
+  g.addColorStop(0, '#0e0a25');
+  g.addColorStop(1, '#1a1840');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, G.w, G.h);
+  // grid stars
+  ctx.fillStyle = '#ffffff20';
+  for (let i = 0; i < 40; i++) {
+    const x = (i * 137) % G.w;
+    const y = (i * 271 + Math.sin(G.time + i) * 20) % G.h;
+    ctx.fillRect(x, y, 1, 1);
+  }
+  // playfield
+  ctx.fillStyle = '#0c1428';
+  ctx.fillRect(G.ox, G.oy, G.cell * COLS, G.cell * ROWS);
+  // grass cells with subtle grid
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      if (isPath(c, r)) continue;
+      const x = G.ox + c * G.cell, y = G.oy + r * G.cell;
+      const shade = (c + r) % 2 ? '#15203a' : '#101a30';
+      ctx.fillStyle = shade;
+      ctx.fillRect(x, y, G.cell, G.cell);
+      // hex hint
+      ctx.strokeStyle = '#1a2a48';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x + 0.5, y + 0.5, G.cell - 1, G.cell - 1);
+    }
+  }
+}
+
+function drawPath(ctx) {
+  // stone/circuit tiles
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      if (!isPath(c, r)) continue;
+      const x = G.ox + c * G.cell, y = G.oy + r * G.cell;
+      ctx.fillStyle = '#3a2c1a';
+      ctx.fillRect(x, y, G.cell, G.cell);
+      ctx.strokeStyle = '#5a4428';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x+1, y+1, G.cell-2, G.cell-2);
+      // neon circuit
+      ctx.strokeStyle = '#4afa';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x + G.cell*0.2, y + G.cell*0.5);
+      ctx.lineTo(x + G.cell*0.8, y + G.cell*0.5);
+      ctx.moveTo(x + G.cell*0.5, y + G.cell*0.2);
+      ctx.lineTo(x + G.cell*0.5, y + G.cell*0.8);
+      ctx.stroke();
+    }
+  }
+  // spawn portal
+  const start = G.pathPx[0], next = G.pathPx[1];
+  ctx.save();
+  ctx.translate(start.x, start.y);
+  ctx.fillStyle = '#f0a';
+  ctx.shadowColor = '#f0a'; ctx.shadowBlur = 16;
+  ctx.beginPath(); ctx.arc(0, 0, G.cell*0.3 + Math.sin(G.time*4)*2, 0, Math.PI*2); ctx.fill();
+  ctx.restore();
+  // castle at end
+  const end = G.pathPx[G.pathPx.length - 1];
+  ctx.save();
+  ctx.translate(end.x, end.y);
+  ctx.fillStyle = '#445';
+  ctx.fillRect(-G.cell*0.5, -G.cell*0.7, G.cell, G.cell*0.9);
+  ctx.fillStyle = '#667';
+  for (let i = 0; i < 4; i++) {
+    ctx.fillRect(-G.cell*0.5 + i*G.cell*0.3, -G.cell*0.85, G.cell*0.18, G.cell*0.15);
+  }
+  ctx.fillStyle = '#4af';
+  ctx.shadowColor = '#4af'; ctx.shadowBlur = 8;
+  ctx.fillRect(-G.cell*0.1, -G.cell*0.4, G.cell*0.2, G.cell*0.3);
+  ctx.shadowBlur = 0;
+  ctx.restore();
+}
+
+function drawHover(ctx) {
+  if (!G.hoverCell || !G.selectedType) return;
+  const { c, r } = G.hoverCell;
+  const x = G.ox + c * G.cell, y = G.oy + r * G.cell;
+  const valid = !isPath(c, r) && !isOccupied(c, r) && G.gold >= TOWER_TYPES[G.selectedType].cost;
+  ctx.fillStyle = valid ? '#4f46' : '#f446';
+  ctx.fillRect(x, y, G.cell, G.cell);
+  if (valid) {
+    const def = TOWER_TYPES[G.selectedType];
+    const center = cellCenter(c, r);
+    ctx.strokeStyle = def.color + '88';
+    ctx.beginPath();
+    ctx.arc(center.x, center.y, def.range * G.cell, 0, Math.PI*2);
+    ctx.stroke();
+  }
+}
+
+function drawSelectedRange(ctx) {
+  if (!G.selectedTower) return;
+  const t = G.selectedTower;
+  ctx.strokeStyle = t.def.color;
+  ctx.fillStyle = t.def.color + '22';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(t.x, t.y, t.range, 0, Math.PI*2);
+  ctx.fill(); ctx.stroke();
+}
+
+function render() {
+  const ctx = G.ctx;
+  ctx.clearRect(0, 0, G.w, G.h);
+  drawBackground(ctx);
+  drawPath(ctx);
+  drawHover(ctx);
+  drawSelectedRange(ctx);
+  for (const t of G.towers) t.draw(ctx);
+  for (const e of G.enemies) if (!e.dead && !e.reached) e.draw(ctx);
+  for (const p of G.projectiles) p.draw(ctx);
+  drawParticles(ctx);
+}
+
+// ===== Main Loop =====
+function update(dt) {
+  if (!G.running) return;
+  G.time += dt;
+  updateSpawning(dt);
+  for (const t of G.towers) t.update(dt);
+  for (const e of G.enemies) e.update(dt);
+  for (const p of G.projectiles) p.update(dt);
+  updateParticles(dt);
+  G.enemies = G.enemies.filter(e => !e.dead && !e.reached);
+  G.projectiles = G.projectiles.filter(p => !p.dead);
+  // wave done?
+  if (G.running && !G.spawnQueue.length && !G.enemies.length) {
+    document.getElementById('waveBtn').classList.toggle('hidden', G.wave >= WAVES.length);
+  }
+  // game over / victory
+  if (G.hp <= 0 && !G.gameOver) {
+    G.gameOver = true; G.running = false;
+    showMessage('DEFAITE', `Le donjon est tombe a la vague ${G.wave}.`, 'REJOUER', () => location.reload());
+  }
+  if (G.wave >= WAVES.length && !G.spawnQueue.length && !G.enemies.length && !G.victory && G.running) {
+    G.victory = true; G.running = false;
+    showMessage('VICTOIRE', `Vous avez resiste aux ${WAVES.length} vagues !`, 'REJOUER', () => location.reload());
+  }
+  // UI
+  document.getElementById('hp').textContent = Math.max(0, G.hp);
+  document.getElementById('gold').textContent = G.gold;
+  document.getElementById('wave').textContent = `${G.wave}/${WAVES.length}`;
+  updateShopUI();
+}
+
+function loop(ts) {
+  const t = ts / 1000;
+  const dt = Math.min(0.05, t - (G.lastTime || t));
+  G.lastTime = t;
+  update(dt);
+  render();
+  requestAnimationFrame(loop);
+}
+
+// ===== Init =====
+function init() {
+  G.canvas = document.getElementById('canvas');
+  G.ctx = G.canvas.getContext('2d');
+  layout();
+  buildShop();
+  setupInput();
+  updateShopUI();
+  requestAnimationFrame(loop);
+}
+
+window.addEventListener('load', init);
+</script>
+</body>
+</html>
