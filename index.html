@@ -2,22 +2,22 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <title>HTMLToine - Cyber Castle Defense</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; user-select: none; }
   html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0a14; font-family: 'Segoe UI', Roboto, sans-serif; color: #e8f0ff; touch-action: none; }
-  #game { position: fixed; inset: 0; display: flex; flex-direction: column; }
-  #topBar { display: flex; justify-content: space-around; align-items: center; padding: 8px 6px; background: linear-gradient(180deg, #1a1530 0%, #0d0a1f 100%); border-bottom: 2px solid #4af; box-shadow: 0 0 12px #4af6; z-index: 5; }
+  #game { position: fixed; inset: 0; display: flex; flex-direction: column; height: 100dvh; }
+  #topBar { display: flex; justify-content: space-around; align-items: center; padding: 8px 6px; padding-top: calc(8px + env(safe-area-inset-top)); background: linear-gradient(180deg, #1a1530 0%, #0d0a1f 100%); border-bottom: 2px solid #4af; box-shadow: 0 0 12px #4af6; z-index: 5; }
   .stat { display: flex; flex-direction: column; align-items: center; font-size: 11px; letter-spacing: 1px; color: #8af; text-transform: uppercase; }
   .stat b { font-size: 18px; color: #fff; text-shadow: 0 0 6px currentColor; }
   .stat.hp b { color: #f55; }
   .stat.gold b { color: #fc3; }
   .stat.wave b { color: #5fa; }
   #canvas { flex: 1; display: block; touch-action: none; image-rendering: crisp-edges; }
-  #shop { display: flex; gap: 6px; padding: 8px; background: linear-gradient(0deg, #1a1530 0%, #0d0a1f 100%); border-top: 2px solid #4af; box-shadow: 0 0 12px #4af6; z-index: 5; }
+  #shop { display: flex; gap: 6px; padding: 8px; padding-bottom: calc(8px + env(safe-area-inset-bottom)); padding-left: calc(8px + env(safe-area-inset-left)); padding-right: calc(8px + env(safe-area-inset-right)); background: linear-gradient(0deg, #1a1530 0%, #0d0a1f 100%); border-top: 2px solid #4af; box-shadow: 0 0 12px #4af6; z-index: 5; }
   .tower { flex: 1; padding: 8px 4px; background: #1c1838; border: 2px solid #345; border-radius: 8px; text-align: center; cursor: pointer; transition: all 0.15s; position: relative; }
   .tower:active { transform: scale(0.95); }
   .tower.selected { border-color: #4af; background: #2a3870; box-shadow: 0 0 14px #4af; }
@@ -31,10 +31,10 @@
   #msg button { padding: 10px 22px; font-size: 14px; font-weight: bold; background: linear-gradient(180deg, #4af 0%, #26a 100%); color: #fff; border: none; border-radius: 6px; cursor: pointer; letter-spacing: 1px; }
   #msg button:active { transform: scale(0.96); }
   #msg.hidden { display: none; }
-  #waveBtn { position: absolute; right: 10px; bottom: 90px; padding: 10px 14px; background: linear-gradient(180deg, #5fa 0%, #283 100%); color: #022; border: none; border-radius: 8px; font-weight: bold; font-size: 13px; box-shadow: 0 0 12px #5fa8; z-index: 4; cursor: pointer; }
+  #waveBtn { position: absolute; right: calc(10px + env(safe-area-inset-right)); bottom: calc(96px + env(safe-area-inset-bottom)); padding: 10px 14px; background: linear-gradient(180deg, #5fa 0%, #283 100%); color: #022; border: none; border-radius: 8px; font-weight: bold; font-size: 13px; box-shadow: 0 0 12px #5fa8; z-index: 4; cursor: pointer; }
   #waveBtn:active { transform: scale(0.95); }
   #waveBtn.hidden { display: none; }
-  #sellBtn { position: absolute; left: 10px; bottom: 90px; padding: 10px 14px; background: linear-gradient(180deg, #f66 0%, #822 100%); color: #fff; border: none; border-radius: 8px; font-weight: bold; font-size: 13px; box-shadow: 0 0 12px #f668; z-index: 4; cursor: pointer; }
+  #sellBtn { position: absolute; left: calc(10px + env(safe-area-inset-left)); bottom: calc(96px + env(safe-area-inset-bottom)); padding: 10px 14px; background: linear-gradient(180deg, #f66 0%, #822 100%); color: #fff; border: none; border-radius: 8px; font-weight: bold; font-size: 13px; box-shadow: 0 0 12px #f668; z-index: 4; cursor: pointer; }
   #sellBtn:active { transform: scale(0.95); }
   #sellBtn.hidden { display: none; }
 </style>
