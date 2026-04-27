@@ -1062,10 +1062,10 @@ function updateWavePreview() {
 function updateSpawning(dt) {
   if (!G.spawnQueue.length) return;
   G.spawnTimer -= dt;
-  if (G.spawnTimer <= 0) {
+  while (G.spawnTimer <= 0 && G.spawnQueue.length) {
     const s = G.spawnQueue.shift();
     G.enemies.push(new Enemy(s.type, s.hpMul, s.pathIdx || 0));
-    G.spawnTimer = 0.7;
+    G.spawnTimer += G.run.testMode ? 0.1 : 0.7;
   }
 }
 
