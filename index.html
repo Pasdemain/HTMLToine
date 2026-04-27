@@ -136,7 +136,7 @@ const MAPS = {
       [{c:-1,r:1},{c:3,r:1},{c:3,r:4},{c:1,r:4},{c:1,r:7},
        {c:6,r:7},{c:6,r:10},{c:2,r:10},{c:2,r:12},{c:9,r:12}]
     ],
-    castleEnd: { c: 8, r: 12 }
+    castleEnds: [{ c:8, r:12 }]
   },
   croisee: {
     name: 'LA CROISEE',
@@ -146,7 +146,7 @@ const MAPS = {
       [{c:-1,r:1},{c:4,r:1},{c:4,r:8},{c:4,r:14}],
       [{c:9,r:1},{c:4,r:1},{c:4,r:8},{c:4,r:14}]
     ],
-    castleEnd: { c: 4, r: 13 }
+    castleEnds: [{ c:4, r:13 }]
   },
   bastion: {
     name: 'BASTION',
@@ -156,7 +156,39 @@ const MAPS = {
       [{c:-1,r:2},{c:6,r:2},{c:6,r:7},{c:9,r:7}],
       [{c:-1,r:11},{c:6,r:11},{c:6,r:7},{c:9,r:7}]
     ],
-    castleEnd: { c: 8, r: 7 }
+    castleEnds: [{ c:8, r:7 }]
+  },
+  tridon: {
+    name: 'TRIDON',
+    icon: '\u{1F531}',
+    desc: 'Trois entrees convergent en un point. Strategique.',
+    paths: [
+      [{c:-1,r:1},{c:3,r:1},{c:3,r:8},{c:9,r:8}],
+      [{c:9,r:1},{c:5,r:1},{c:5,r:6},{c:3,r:6},{c:3,r:8},{c:9,r:8}],
+      [{c:-1,r:13},{c:3,r:13},{c:3,r:8},{c:9,r:8}]
+    ],
+    castleEnds: [{ c:8, r:8 }]
+  },
+  labyrinthe: {
+    name: 'LABYRINTHE',
+    icon: '\u{1F500}',
+    desc: 'Long chemin tortueux. Ralenti mais espace de placement reduit.',
+    paths: [
+      [{c:-1,r:1},{c:7,r:1},{c:7,r:3},{c:1,r:3},{c:1,r:5},
+       {c:7,r:5},{c:7,r:7},{c:1,r:7},{c:1,r:9},
+       {c:7,r:9},{c:7,r:11},{c:1,r:11},{c:1,r:13},{c:9,r:13}]
+    ],
+    castleEnds: [{ c:8, r:13 }]
+  },
+  hubCentral: {
+    name: 'HUB CENTRAL',
+    icon: '\u{2747}',
+    desc: 'Deux chemins se croisent au centre. Deux donjons a defendre !',
+    paths: [
+      [{c:-1,r:4},{c:4,r:4},{c:4,r:10},{c:9,r:10}],
+      [{c:-1,r:10},{c:4,r:10},{c:4,r:4},{c:9,r:4}]
+    ],
+    castleEnds: [{ c:8, r:10 }, { c:8, r:4 }]
   }
 };
 
@@ -168,11 +200,15 @@ const TOWER_TYPES = {
 };
 
 const ENEMY_TYPES = {
-  goblin: { hp:25,  speed:1.6, gold:6,  color:'#7c5', size:0.32, name:'goblin' },
-  knight: { hp:70,  speed:1.2, gold:12, color:'#aab', size:0.38, name:'knight' },
-  drone:  { hp:45,  speed:2.2, gold:10, color:'#4cf', size:0.30, name:'drone'  },
-  ogre:   { hp:220, speed:0.8, gold:30, color:'#a73', size:0.46, name:'ogre'   },
-  boss:   { hp:900, speed:0.7, gold:120,color:'#f3f', size:0.55, name:'boss'   }
+  goblin:   { hp:25,  speed:1.6, gold:6,   color:'#7c5', size:0.32 },
+  knight:   { hp:70,  speed:1.2, gold:12,  color:'#aab', size:0.38 },
+  drone:    { hp:45,  speed:2.2, gold:10,  color:'#4cf', size:0.30 },
+  ogre:     { hp:220, speed:0.8, gold:30,  color:'#a73', size:0.46 },
+  boss:     { hp:900, speed:0.7, gold:120, color:'#f3f', size:0.55 },
+  shield:   { hp:90,  speed:1.0, gold:20,  color:'#ce8', size:0.40, ability:'shield'  },
+  healer:   { hp:60,  speed:1.1, gold:22,  color:'#5fa', size:0.36, ability:'heal'    },
+  splitter: { hp:140, speed:1.0, gold:25,  color:'#f8c', size:0.42, ability:'split'   },
+  mini:     { hp:30,  speed:1.8, gold:5,   color:'#fac', size:0.26 }
 };
 
 // ===== Game State =====
@@ -435,6 +471,63 @@ const CARDS = [
     desc:'Toutes les nouvelles tours commencent au lvl 2.',
     unlockedBy: 'tower_lvl3',
     apply:() => { G.run.mods.startTowerLevel = Math.max(2, G.run.mods.startTowerLevel || 1); } },
+  { id:'iron_rune', icon:'\u{1F4DC}', name:'RUNE DE FER', rarity:'rare',
+    desc:'+3 HP maintenant + tours +10% degats.',
+    unlockedBy: 'wave_5',
+    apply:() => { G.hp += 3; G.run.mods.towerDmgMul *= 1.1; } },
+  { id:'old_runes',  icon:'\u{1F52E}', name:'RUNES ANCIENNES', rarity:'rare',
+    desc:'Plasma AOE +40%, Tesla +1 chain.',
+    unlockedBy: 'wave_10',
+    apply:() => { G.run.mods.plasmaAoeMul *= 1.4; G.run.mods.teslaChainBonus += 1; } },
+  { id:'eternal',    icon:'\u{1F30C}', name:'GARDIEN ETERNEL', rarity:'epic',
+    desc:'Tours +35% degats, +25% portee.',
+    unlockedBy: 'wave_30',
+    apply:() => {
+      G.run.mods.towerDmgMul *= 1.35;
+      G.run.mods.towerRangeMul *= 1.25;
+      for (const t of G.towers) t.range *= 1.25;
+    } },
+  { id:'treasurer',  icon:'\u{1F3E6}', name:'TRESORIER', rarity:'rare',
+    desc:'+50 or maintenant + 10 or par vague.',
+    unlockedBy: 'rich_500',
+    apply:() => { G.gold += 50; G.run.mods.goldPerWave += 10; } },
+  { id:'banker',     icon:'\u{1F4B8}', name:'BANQUIER', rarity:'epic',
+    desc:'Or gagne x1.4 (cumule).',
+    unlockedBy: 'rich_1000',
+    apply:() => { G.run.mods.goldMul *= 1.4; } },
+  { id:'protector',  icon:'\u{1F6E1}', name:'PROTECTEUR', rarity:'rare',
+    desc:'+10 HP maintenant.',
+    unlockedBy: 'flawless_wave',
+    apply:() => { G.hp += 10; } },
+  { id:'sacred_hammer', icon:'\u{1F528}', name:'MARTEAU SACRE', rarity:'rare',
+    desc:'Archer : x2 degats, +30% cadence.',
+    unlockedBy: 'played_forgeron',
+    apply:() => { G.run.mods.towerTypeDmgMul.archer *= 2; G.run.mods.towerTypeRateMul.archer *= 1.3; } },
+  { id:'firewall',   icon:'\u{1F525}', name:'FIREWALL', rarity:'rare',
+    desc:'Laser : +80% degats, +20% portee.',
+    unlockedBy: 'played_hacker',
+    apply:() => { G.run.mods.towerTypeDmgMul.laser *= 1.8; G.run.mods.towerRangeMul *= 1.2;
+                  for (const t of G.towers) if (t.type==='laser') t.range *= 1.2; } },
+  { id:'roots',      icon:'\u{1F33F}', name:'RACINES METALLIQUES', rarity:'rare',
+    desc:'Tesla : chains +2, +30 or maintenant.',
+    unlockedBy: 'played_druide',
+    apply:() => { G.run.mods.teslaChainBonus += 2; G.gold += 30; } },
+  { id:'tenacity',   icon:'\u{1F4AA}', name:'TENACITE', rarity:'rare',
+    desc:'+30 HP maintenant + or +20%.',
+    unlockedBy: 'hard_won',
+    apply:() => { G.hp += 30; G.run.mods.goldMul *= 1.2; } },
+  { id:'reverse_dread', icon:'\u{1F47B}', name:'EFFROI INVERSE', rarity:'epic',
+    desc:'HP des ennemis -15% pour le reste du run.',
+    unlockedBy: 'nightmare_won',
+    apply:() => { G.run.mods.enemyHpMul *= 0.85; for (const e of G.enemies) { e.maxHp *= 0.85; e.hp = Math.min(e.hp, e.maxHp); } } },
+  { id:'destiny',    icon:'\u{1F3B4}', name:'DESTIN', rarity:'epic',
+    desc:'Draft de cartes +1 (5 choix au lieu de 4).',
+    unlockedBy: 'card_collector_10',
+    apply:() => { G.run.mods.draftSize = Math.max(5, (G.run.mods.draftSize || 3) + 1); } },
+  { id:'blessing',   icon:'\u{1F31F}', name:'BENEDICTION', rarity:'common',
+    desc:'+30 or, +5 HP.',
+    unlockedBy: 'first_run',
+    apply:() => { G.gold += 30; G.hp += 5; } }
 ];
 
 function isCardUnlocked(card) {
@@ -593,11 +686,30 @@ class Enemy {
     this.reached = false;
     this.flash = 0;
     this.slow = 0;
+    this.ability = t.ability || null;
+    this.shield = (this.ability === 'shield') ? this.maxHp * 0.6 : 0;
+    this.maxShield = this.shield;
+    this.healTimer = 0;
+    this.healPulse = 0;
   }
   path() { return G.pathsPx[this.pathIdx] || G.pathsPx[0]; }
   update(dt) {
     if (this.dead || this.reached) return;
     if (this.flash > 0) this.flash -= dt;
+    if (this.healPulse > 0) this.healPulse -= dt;
+    if (this.ability === 'heal') {
+      this.healTimer += dt;
+      if (this.healTimer >= 1.0) {
+        this.healTimer = 0;
+        this.healPulse = 0.4;
+        const r = G.cell * 1.6;
+        for (const e of G.enemies) {
+          if (e === this || e.dead || e.reached) continue;
+          if (Math.hypot(e.x - this.x, e.y - this.y) > r) continue;
+          e.hp = Math.min(e.maxHp, e.hp + e.maxHp * 0.05 + 4);
+        }
+      }
+    }
     let speed = this.speed;
     if (this.slow > 0) { speed *= 0.5; this.slow -= dt; }
     let remaining = speed * dt;
@@ -628,9 +740,16 @@ class Enemy {
   }
   damage(d) {
     if (this.dead) return;
+    G.stats.dmgDealt += d;
+    if (this.shield > 0) {
+      const absorbed = Math.min(this.shield, d);
+      this.shield -= absorbed;
+      d -= absorbed;
+      if (this.shield <= 0) spawnParticles(this.x, this.y, '#fff', 8);
+      if (d <= 0) { this.flash = 0.1; return; }
+    }
     this.hp -= d;
     this.flash = 0.1;
-    G.stats.dmgDealt += d;
     if (this.hp <= 0) {
       this.dead = true;
       const earned = Math.floor(this.gold * G.run.mods.goldMul);
@@ -640,6 +759,16 @@ class Enemy {
       const baseXp = (this.type === 'boss') ? 50 : 1;
       G.run.runXp = (G.run.runXp || 0) + Math.ceil(baseXp * G.run.mods.xpMul);
       spawnParticles(this.x, this.y, this.color, 10);
+      if (this.ability === 'split') {
+        for (let i = 0; i < 2; i++) {
+          const mini = new Enemy('mini', 1, this.pathIdx);
+          mini.seg = this.seg;
+          mini.t = this.t;
+          mini.x = this.x + (i ? G.cell*0.2 : -G.cell*0.2);
+          mini.y = this.y;
+          G.enemies.push(mini);
+        }
+      }
     }
   }
   draw(ctx) {
@@ -671,13 +800,54 @@ class Enemy {
         ctx.arc(this.x+Math.cos(a)*r*0.6, this.y+Math.sin(a)*r*0.6, r*0.15, 0, Math.PI*2);
         ctx.fill();
       }
+    } else if (this.type === 'shield') {
+      ctx.beginPath(); ctx.arc(this.x, this.y, r*0.7, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+      if (this.shield > 0) {
+        ctx.strokeStyle = '#5fa'; ctx.lineWidth = 3;
+        ctx.shadowColor = '#5fa'; ctx.shadowBlur = 8;
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+          const a = (i/6)*Math.PI*2 + G.time;
+          const px = this.x + Math.cos(a)*r, py = this.y + Math.sin(a)*r;
+          i ? ctx.lineTo(px,py) : ctx.moveTo(px,py);
+        }
+        ctx.closePath(); ctx.stroke();
+        ctx.shadowBlur = 0;
+      }
+    } else if (this.type === 'healer') {
+      if (this.healPulse > 0) {
+        ctx.strokeStyle = '#5fa';
+        ctx.shadowColor = '#5fa'; ctx.shadowBlur = 14;
+        ctx.lineWidth = 2 + this.healPulse * 8;
+        ctx.beginPath(); ctx.arc(this.x, this.y, G.cell * 1.6 * (1 - this.healPulse * 1.5), 0, Math.PI*2);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+      }
+      ctx.beginPath(); ctx.arc(this.x, this.y, r, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(this.x - r*0.5, this.y - 1, r, 2);
+      ctx.fillRect(this.x - 1, this.y - r*0.5, 2, r);
+    } else if (this.type === 'splitter') {
+      ctx.beginPath();
+      for (let i = 0; i < 4; i++) {
+        const a = (i/4)*Math.PI*2 + Math.PI/4;
+        const px = this.x + Math.cos(a)*r, py = this.y + Math.sin(a)*r;
+        i ? ctx.lineTo(px,py) : ctx.moveTo(px,py);
+      }
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+    } else if (this.type === 'mini') {
+      ctx.beginPath(); ctx.arc(this.x, this.y, r, 0, Math.PI*2); ctx.fill(); ctx.stroke();
     } else {
       ctx.beginPath(); ctx.arc(this.x, this.y, r, 0, Math.PI*2); ctx.fill(); ctx.stroke();
     }
-    // hp bar
+    // hp bar (and shield bar if any)
     const bw = r * 2, bh = 4;
     ctx.fillStyle = '#400'; ctx.fillRect(this.x - bw/2, this.y - r - 8, bw, bh);
     ctx.fillStyle = '#5f5'; ctx.fillRect(this.x - bw/2, this.y - r - 8, bw * (this.hp/this.maxHp), bh);
+    if (this.maxShield > 0) {
+      ctx.fillStyle = '#022'; ctx.fillRect(this.x - bw/2, this.y - r - 14, bw, 3);
+      ctx.fillStyle = '#5fa'; ctx.fillRect(this.x - bw/2, this.y - r - 14, bw * (this.shield/this.maxShield), 3);
+    }
   }
 }
 
@@ -686,17 +856,20 @@ const WAVES = [
   ['goblin','goblin','goblin','goblin','goblin'],
   ['goblin','goblin','goblin','knight','goblin','knight'],
   ['drone','drone','drone','drone','goblin','goblin'],
-  ['knight','knight','knight','goblin','goblin','goblin','goblin'],
-  ['drone','drone','knight','knight','drone','knight'],
-  ['ogre','goblin','goblin','goblin','goblin'],
-  ['drone','drone','drone','drone','drone','drone','drone','drone'],
-  ['knight','knight','knight','knight','ogre','knight'],
-  ['ogre','ogre','knight','drone','drone','knight'],
-  ['boss','knight','knight','goblin','goblin','goblin']
+  ['shield','knight','goblin','goblin','knight','goblin'],
+  ['drone','drone','healer','knight','drone','knight'],
+  ['ogre','splitter','goblin','goblin'],
+  ['drone','shield','drone','drone','drone','drone','shield'],
+  ['knight','knight','healer','knight','ogre','knight'],
+  ['ogre','splitter','splitter','drone','drone','knight'],
+  ['boss','shield','healer','knight','knight','splitter']
 ];
 
 function generateEndlessWave(n) {
   const pool = ['goblin','goblin','knight','drone','knight','ogre'];
+  if (n >= 1) pool.push('shield');
+  if (n >= 3) pool.push('healer');
+  if (n >= 4) pool.push('splitter');
   const out = [];
   const count = 6 + Math.floor(n * 0.7);
   for (let i = 0; i < count; i++) {
@@ -704,6 +877,7 @@ function generateEndlessWave(n) {
   }
   if (n % 5 === 0) out.push('boss');
   if (n > 3 && Math.random() < 0.4) out.push('ogre');
+  if (n >= 2) out.push('shield');
   return out;
 }
 
@@ -739,7 +913,8 @@ function updateWavePreview() {
   const next = getWave(G.wave);
   const counts = {};
   for (const t of next) counts[t] = (counts[t] || 0) + 1;
-  const ICONS = { goblin:'\u{1F47A}', knight:'\u{1F6E1}', drone:'\u{1F6F8}', ogre:'\u{1F479}', boss:'\u{1F47F}' };
+  const ICONS = { goblin:'\u{1F47A}', knight:'\u{1F6E1}', drone:'\u{1F6F8}', ogre:'\u{1F479}', boss:'\u{1F47F}',
+                  shield:'\u{1F6E1}\u{FE0F}', healer:'\u{2695}\u{FE0F}', splitter:'\u{1F48E}', mini:'\u{1F539}' };
   let html = '<span class="lbl">Suivant</span>';
   for (const [k, n] of Object.entries(counts)) {
     html += `<span class="pe" title="${k}">${ICONS[k]||'?'}${n>1?'×'+n:''}</span>`;
@@ -1244,11 +1419,13 @@ function showTitle() {
     ${meta}
     <button id="newRunBtn">NOUVEAU RUN</button>
     <button id="metaBtn" class="achBtn">ARBRE (${Object.keys(metaUnlocks()).length}/${Object.keys(META_NODES).length})</button>
+    <button id="cardsBtn" class="achBtn">CARTES (${CARDS.filter(isCardUnlocked).length}/${CARDS.length})</button>
     <button id="achBtn" class="achBtn">SUCCES (${unlockedCount}/${totalAch})</button>
   `;
   m.classList.remove('hidden');
   document.getElementById('newRunBtn').onclick = showCharSelect;
   document.getElementById('metaBtn').onclick = showMetaTree;
+  document.getElementById('cardsBtn').onclick = showCardCollection;
   document.getElementById('achBtn').onclick = showAchievements;
 }
 
@@ -1297,6 +1474,38 @@ function buyMetaNode(id) {
   saveBest();
   spawnParticles(G.w/2, G.h/2, '#fc3', 24);
   showMetaTree();
+}
+
+function showCardCollection() {
+  const m = document.getElementById('msg');
+  m.classList.add('wide');
+  let cells = '';
+  let unlockedCount = 0;
+  for (const c of CARDS) {
+    const unlocked = isCardUnlocked(c);
+    if (unlocked) unlockedCount++;
+    const col = RARITY_COLOR[c.rarity];
+    const reqAch = c.unlockedBy ? ACHIEVEMENTS[c.unlockedBy] : null;
+    const lockedNote = !unlocked && reqAch
+      ? `<div class="cd" style="color:#f88">\u{1F512} A debloquer : ${reqAch.name}</div>`
+      : '';
+    cells += `
+      <div class="achCell ${unlocked ? '' : 'locked'}" style="grid-column: span 2">
+        <div class="ci" style="color:${col}">${c.icon}</div>
+        <div>
+          <div class="cn">${c.name} <span style="font-size:9px;color:${col}">${RARITY_LABEL[c.rarity]}</span></div>
+          <div class="cd">${c.desc}</div>
+          ${lockedNote}
+        </div>
+      </div>`;
+  }
+  m.innerHTML = `
+    <h1>COLLECTION DE CARTES (${unlockedCount}/${CARDS.length})</h1>
+    <div class="meta">Cartes pouvant apparaitre dans les drafts</div>
+    <div class="achGrid">${cells}</div>
+    <button id="backBtn">← Retour</button>
+  `;
+  document.getElementById('backBtn').onclick = showTitle;
 }
 
 function showAchievements() {
@@ -1614,23 +1823,25 @@ function drawPath(ctx) {
     ctx.beginPath(); ctx.arc(0, 0, G.cell*0.3 + Math.sin(G.time*4)*2, 0, Math.PI*2); ctx.fill();
     ctx.restore();
   }
-  // castle at the configured castleEnd
+  // castles
   const map = MAPS[G.map] || MAPS.donjon;
-  const ce = map.castleEnd;
-  const end = { x: G.ox + (ce.c + 0.5) * G.cell, y: G.oy + (ce.r + 0.5) * G.cell };
-  ctx.save();
-  ctx.translate(end.x, end.y);
-  ctx.fillStyle = '#445';
-  ctx.fillRect(-G.cell*0.5, -G.cell*0.7, G.cell, G.cell*0.9);
-  ctx.fillStyle = '#667';
-  for (let i = 0; i < 4; i++) {
-    ctx.fillRect(-G.cell*0.5 + i*G.cell*0.3, -G.cell*0.85, G.cell*0.18, G.cell*0.15);
+  const ends = map.castleEnds || (map.castleEnd ? [map.castleEnd] : [{c:8,r:12}]);
+  for (const ce of ends) {
+    const end = { x: G.ox + (ce.c + 0.5) * G.cell, y: G.oy + (ce.r + 0.5) * G.cell };
+    ctx.save();
+    ctx.translate(end.x, end.y);
+    ctx.fillStyle = '#445';
+    ctx.fillRect(-G.cell*0.5, -G.cell*0.7, G.cell, G.cell*0.9);
+    ctx.fillStyle = '#667';
+    for (let i = 0; i < 4; i++) {
+      ctx.fillRect(-G.cell*0.5 + i*G.cell*0.3, -G.cell*0.85, G.cell*0.18, G.cell*0.15);
+    }
+    ctx.fillStyle = '#4af';
+    ctx.shadowColor = '#4af'; ctx.shadowBlur = 8;
+    ctx.fillRect(-G.cell*0.1, -G.cell*0.4, G.cell*0.2, G.cell*0.3);
+    ctx.shadowBlur = 0;
+    ctx.restore();
   }
-  ctx.fillStyle = '#4af';
-  ctx.shadowColor = '#4af'; ctx.shadowBlur = 8;
-  ctx.fillRect(-G.cell*0.1, -G.cell*0.4, G.cell*0.2, G.cell*0.3);
-  ctx.shadowBlur = 0;
-  ctx.restore();
 }
 
 function drawHover(ctx) {
