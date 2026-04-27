@@ -76,6 +76,15 @@
   .achCell .cn { font-size: 10px; color: #fff; font-weight: bold; line-height: 1.2; }
   .achCell .cd { font-size: 9px; color: #8af; line-height: 1.2; margin-top: 1px; }
   .achBtn { background: rgba(252,195,51,0.2) !important; color: #fc3 !important; border: 1px solid #fc3 !important; box-shadow: none !important; padding: 6px 10px !important; font-size: 11px !important; margin-top: 4px; width: 100%; }
+  .testBtn { background: rgba(74,222,128,0.18) !important; color: #5fa !important; border: 1px solid #5fa !important; box-shadow: none !important; padding: 6px 10px !important; font-size: 11px !important; margin-top: 4px; width: 100%; }
+  .enemyList { display: flex; flex-direction: column; gap: 5px; margin: 8px 0; max-height: 50vh; overflow-y: auto; }
+  .enemyRow { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: #15102a; border: 1px solid #345; border-radius: 6px; }
+  .enemyRow .ei { font-size: 22px; line-height: 1; min-width: 26px; text-align: center; }
+  .enemyRow .en { flex: 1; font-size: 11px; font-weight: bold; color: #cef; }
+  .enemyRow .cb { width: 28px; height: 28px; padding: 0; font-size: 16px; font-weight: bold; background: #2a2148; color: #fff; border: 1px solid #4af; border-radius: 5px; cursor: pointer; }
+  .enemyRow .cb:active { transform: scale(0.9); }
+  .enemyRow .cv { min-width: 30px; text-align: center; font-weight: bold; font-size: 14px; color: #fc3; }
+  .enemyRow .clear { background: #520; color: #f88; border-color: #844; font-size: 11px; width: auto; padding: 0 8px; }
   .metaGrid { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; max-height: 55vh; overflow-y: auto; }
   .metaCell { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: linear-gradient(135deg, #1a1838 0%, #0e0c25 100%); border: 1px solid #345; border-radius: 8px; }
   .metaCell.owned { border-color: #5fa; background: linear-gradient(135deg, #1a3528 0%, #0c2418 100%); }
@@ -234,6 +243,17 @@ const MAPS = {
       [{c:18,r:20},{c:11,r:20},{c:11,r:13},{c:9,r:13},{c:9,r:11}]
     ],
     castleEnds: [{ c:9, r:11 }]
+  },
+  test: {
+    name: 'AIRE D\'ESSAI',
+    icon: '\u{1F9EA}',
+    desc: 'Grand circuit ouvert pour tester. Une seule vague custom.',
+    testOnly: true, large: true, cols: 12, rows: 16,
+    paths: [
+      [{c:-1,r:1},{c:10,r:1},{c:10,r:14},{c:1,r:14},{c:1,r:7},
+       {c:8,r:7},{c:8,r:11},{c:3,r:11},{c:3,r:4},{c:12,r:4}]
+    ],
+    castleEnds: [{ c:11, r:4 }]
   }
 };
 
@@ -272,8 +292,14 @@ const G = {
   stats:{ kills:0, goldEarned:0, towersBuilt:0, dmgDealt:0 },
   best:{ wave:0, kills:0, totalXp:0, spentXp:0, achievements:{}, unlocks:{} },
   screen:'title',
-  run:{ character:null, difficulty:null, map:null, mods:defaultMods() }
+  run:{ character:null, difficulty:null, map:null, mods:defaultMods(),
+        testMode:false, testCounts:null, testWave:null }
 };
+
+const TEST_ENEMIES = ['goblin','knight','drone','ogre','shield','healer','splitter','boss'];
+const TEST_ICONS = { goblin:'\u{1F47A}', knight:'\u{1F6E1}', drone:'\u{1F6F8}',
+                     ogre:'\u{1F479}', boss:'\u{1F47F}', shield:'\u{1F6E1}\u{FE0F}',
+                     healer:'\u{2695}\u{FE0F}', splitter:'\u{1F48E}' };
 
 const METEOR_COST = 80;
 const METEOR_DMG = 120;
@@ -986,6 +1012,18 @@ function getWave(idx) {
 
 function startWave() {
   if (G.spawnQueue.length || G.enemies.length) return;
+  // test mode: only one wave, then back to setup
+  if (G.run.testMode) {
+    if (G.wave >= 1) { showTestSetup(); return; }
+    const pathCount = (MAPS[G.map] || MAPS.donjon).paths.length;
+    G.spawnQueue = (G.run.testWave || []).map((t, i) => ({ type:t, hpMul:1, pathIdx: i % pathCount }));
+    G.spawnTimer = 0;
+    G.wave++;
+    G.run._waveStartHp = G.hp;
+    document.getElementById('waveBtn').classList.add('hidden');
+    document.getElementById('wavePreview').classList.add('hidden');
+    return;
+  }
   const w = getWave(G.wave);
   const hpMul = 1 + G.wave * 0.18;
   const pathCount = (MAPS[G.map] || MAPS.donjon).paths.length;
@@ -1568,12 +1606,17 @@ function showTitle() {
     <button id="metaBtn" class="achBtn">ARBRE (${Object.keys(metaUnlocks()).length}/${Object.keys(META_NODES).length})</button>
     <button id="cardsBtn" class="achBtn">CARTES (${CARDS.filter(isCardUnlocked).length}/${CARDS.length})</button>
     <button id="achBtn" class="achBtn">SUCCES (${unlockedCount}/${totalAch})</button>
+    <button id="testBtn" class="testBtn">MODE TEST (sandbox)</button>
   `;
   m.classList.remove('hidden');
   document.getElementById('newRunBtn').onclick = showCharSelect;
   document.getElementById('metaBtn').onclick = showMetaTree;
   document.getElementById('cardsBtn').onclick = showCardCollection;
   document.getElementById('achBtn').onclick = showAchievements;
+  document.getElementById('testBtn').onclick = () => {
+    G.run.testMode = false;
+    showTestSetup();
+  };
 }
 
 function showMetaTree() {
@@ -1621,6 +1664,98 @@ function buyMetaNode(id) {
   saveBest();
   spawnParticles(G.w/2, G.h/2, '#fc3', 24);
   showMetaTree();
+}
+
+function showTestSetup() {
+  G.screen = 'testSetup';
+  if (!G.run.testCounts) {
+    G.run.testCounts = {};
+    for (const k of TEST_ENEMIES) G.run.testCounts[k] = 0;
+    G.run.testCounts.goblin = 5;
+  }
+  const m = document.getElementById('msg');
+  m.classList.add('wide');
+  let rows = '';
+  let total = 0;
+  for (const k of TEST_ENEMIES) {
+    const n = G.run.testCounts[k] || 0;
+    total += n;
+    rows += `
+      <div class="enemyRow" data-e="${k}">
+        <span class="ei">${TEST_ICONS[k]||'?'}</span>
+        <span class="en">${k.toUpperCase()}</span>
+        <button class="cb" data-act="-1">−</button>
+        <span class="cv">${n}</span>
+        <button class="cb" data-act="+1">+</button>
+        <button class="cb" data-act="+5">+5</button>
+      </div>`;
+  }
+  m.innerHTML = `
+    <h1>MODE TEST</h1>
+    <div class="meta">Configure les ennemis, or illimite, une seule vague</div>
+    <div class="enemyList">${rows}</div>
+    <div class="meta">Total : <b>${total}</b></div>
+    <button id="goBtn" ${total > 0 ? '' : 'disabled'}>DEMARRER</button>
+    <button id="clearBtn" class="achBtn" style="background:rgba(255,80,80,0.18) !important;color:#f88 !important;border-color:#f88 !important">REMETTRE A ZERO</button>
+    <button id="backBtn">← Retour</button>
+  `;
+  m.classList.remove('hidden');
+  for (const row of m.querySelectorAll('.enemyRow')) {
+    const e = row.dataset.e;
+    for (const btn of row.querySelectorAll('.cb')) {
+      btn.onclick = () => {
+        const d = parseInt(btn.dataset.act, 10);
+        G.run.testCounts[e] = Math.max(0, Math.min(99, (G.run.testCounts[e] || 0) + d));
+        showTestSetup();
+      };
+    }
+  }
+  document.getElementById('clearBtn').onclick = () => {
+    for (const k of TEST_ENEMIES) G.run.testCounts[k] = 0;
+    showTestSetup();
+  };
+  document.getElementById('goBtn').onclick = () => {
+    if (total === 0) return;
+    startTestRun();
+  };
+  document.getElementById('backBtn').onclick = showTitle;
+}
+
+function startTestRun() {
+  // build the custom wave list
+  const wave = [];
+  for (const k of TEST_ENEMIES) {
+    const n = G.run.testCounts[k] || 0;
+    for (let i = 0; i < n; i++) wave.push(k);
+  }
+  G.run.testWave = wave;
+  G.run.testMode = true;
+  G.run.character = 'forgeron';
+  G.run.difficulty = 'normal';
+  G.run.map = 'test';
+  G.run.mods = applyMods();
+  G.run.cardsTaken = [];
+  G.run.lastDraftWave = -1;
+  G.run.runXp = 0;
+  G.map = 'test';
+  G.enemies = []; G.towers = []; G.projectiles = []; G.particles = [];
+  G.occupied.clear();
+  G.spawnQueue = []; G.wave = 0;
+  layout();
+  G.gold = 999999;
+  G.hp = 999;
+  G.gameOver = false; G.victory = false;
+  G.stats = { kills:0, goldEarned:0, towersBuilt:0, dmgDealt:0 };
+  G.screen = 'playing';
+  document.getElementById('msg').classList.add('hidden');
+  G.running = true;
+  const wb = document.getElementById('waveBtn');
+  wb.textContent = 'LANCER';
+  wb.classList.remove('hidden');
+  document.getElementById('meteorBtn').classList.remove('hidden');
+  G.run.mods.teslaUnlocked = true;
+  buildShop();
+  updateShopUI();
 }
 
 function showCardCollection() {
@@ -1725,6 +1860,7 @@ function showMapSelect() {
   m.classList.add('wide');
   let cards = '';
   for (const [k, mp] of Object.entries(MAPS)) {
+    if (mp.testOnly) continue;
     const sel = G.run.map === k ? 'selected' : '';
     const spawns = mp.paths.length;
     const sizeBadge = mp.large
@@ -1836,9 +1972,11 @@ function startRun() {
   const char = CHARACTERS[G.run.character];
   const diff = DIFFICULTIES[G.run.difficulty];
   G.run.mods = applyMods(...metaModsCombined(), char.mods, diff.mods);
+  G.run.testMode = false;
   G.run.cardsTaken = [];
   G.run.lastDraftWave = 0;
   G.run.runXp = 0;
+  document.getElementById('waveBtn').textContent = 'VAGUE';
   // apply map
   G.map = G.run.map || 'donjon';
   // reset gameplay state
@@ -2062,26 +2200,29 @@ function update(dt) {
   if (waveDone) {
     document.getElementById('waveBtn').classList.remove('hidden');
     updateWavePreview();
-    // check perfect-wave achievement
-    if (G.wave > 0 && G.run._waveStartHp != null && G.hp >= G.run._waveStartHp) {
-      triggerAchievement('flawless_wave');
-    }
-    // wave milestones
-    if (G.wave >= 5)  triggerAchievement('wave_5');
-    if (G.wave >= 10) {
-      triggerAchievement('wave_10');
-      triggerMatrixCompletion();
-    }
-    if (G.wave >= 20) triggerAchievement('wave_20');
-    if (G.wave >= 30) triggerAchievement('wave_30');
-    // card draft every 2 waves
-    if (G.wave > 0 && G.wave !== G.run.lastDraftWave && G.wave % 2 === 0) {
-      G.run.lastDraftWave = G.wave;
-      setTimeout(showCardDraft, 350);
+    if (!G.run.testMode) {
+      if (G.wave > 0 && G.run._waveStartHp != null && G.hp >= G.run._waveStartHp) {
+        triggerAchievement('flawless_wave');
+      }
+      if (G.wave >= 5)  triggerAchievement('wave_5');
+      if (G.wave >= 10) {
+        triggerAchievement('wave_10');
+        triggerMatrixCompletion();
+      }
+      if (G.wave >= 20) triggerAchievement('wave_20');
+      if (G.wave >= 30) triggerAchievement('wave_30');
+      if (G.wave > 0 && G.wave !== G.run.lastDraftWave && G.wave % 2 === 0) {
+        G.run.lastDraftWave = G.wave;
+        setTimeout(showCardDraft, 350);
+      }
+    } else if (G.wave >= 1) {
+      // in test mode, after the single wave finishes show the wave button
+      // (which will route back to setup via startWave)
+      document.getElementById('waveBtn').textContent = 'RECONFIGURER';
     }
   }
-  // game over: HP gone
-  if (G.hp <= 0 && !G.gameOver) {
+  // game over: HP gone (skipped in test mode since HP is huge anyway)
+  if (G.hp <= 0 && !G.gameOver && !G.run.testMode) {
     G.gameOver = true; G.running = false;
     if (G.wave >= 10) {
       if (G.run.difficulty === 'hard') triggerAchievement('hard_won');
