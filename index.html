@@ -48,7 +48,7 @@
   #msg button { padding: 10px 22px; font-size: 14px; font-weight: bold; background: linear-gradient(180deg, #4af 0%, #26a 100%); color: #fff; border: none; border-radius: 6px; cursor: pointer; letter-spacing: 1px; }
   #msg button:active { transform: scale(0.96); }
   #msg.hidden { display: none; }
-  #msg.wide { max-width: 95%; padding: 14px 16px; }
+  #msg.wide { max-width: 95%; padding: 14px 16px; max-height: 90vh; overflow-y: auto; }
   .picker { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; max-height: 60vh; overflow-y: auto; }
   .pick-card { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: linear-gradient(135deg, #1a1838 0%, #0e0c25 100%); border: 2px solid #345; border-radius: 10px; cursor: pointer; text-align: left; transition: all 0.15s; }
   .pick-card:active { transform: scale(0.98); }
@@ -69,7 +69,7 @@
   .achToast .al { font-size: 9px; letter-spacing: 2px; color: #fc3; text-transform: uppercase; }
   .achToast .an { font-size: 13px; font-weight: bold; color: #fff; margin-top: 2px; }
   .achToast .ad { font-size: 10px; color: #aab; margin-top: 2px; line-height: 1.3; }
-  .achGrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin: 8px 0; max-height: 50vh; overflow-y: auto; }
+  .achGrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin: 8px 0; }
   .achCell { display: flex; gap: 6px; padding: 6px; background: #15102a; border: 1px solid #345; border-radius: 6px; align-items: center; }
   .achCell.locked { opacity: 0.35; }
   .achCell .ci { font-size: 18px; flex-shrink: 0; }
@@ -126,10 +126,39 @@
 // ===== Constants =====
 const COLS = 9;
 const ROWS = 14;
-const PATH = [
-  {c:-1,r:1},{c:3,r:1},{c:3,r:4},{c:1,r:4},{c:1,r:7},
-  {c:6,r:7},{c:6,r:10},{c:2,r:10},{c:2,r:12},{c:9,r:12}
-];
+
+const MAPS = {
+  donjon: {
+    name: 'DONJON ANTIQUE',
+    icon: '\u{1F3F0}',
+    desc: 'Un chemin sinueux. Equilibre.',
+    paths: [
+      [{c:-1,r:1},{c:3,r:1},{c:3,r:4},{c:1,r:4},{c:1,r:7},
+       {c:6,r:7},{c:6,r:10},{c:2,r:10},{c:2,r:12},{c:9,r:12}]
+    ],
+    castleEnd: { c: 8, r: 12 }
+  },
+  croisee: {
+    name: 'LA CROISEE',
+    icon: '\u{271A}',
+    desc: 'Deux entrees convergent vers le donjon.',
+    paths: [
+      [{c:-1,r:1},{c:4,r:1},{c:4,r:8},{c:4,r:14}],
+      [{c:9,r:1},{c:4,r:1},{c:4,r:8},{c:4,r:14}]
+    ],
+    castleEnd: { c: 4, r: 13 }
+  },
+  bastion: {
+    name: 'BASTION',
+    icon: '\u{1F6E1}',
+    desc: 'Deux voies paralleles. Gere tes ressources.',
+    paths: [
+      [{c:-1,r:2},{c:6,r:2},{c:6,r:7},{c:9,r:7}],
+      [{c:-1,r:11},{c:6,r:11},{c:6,r:7},{c:9,r:7}]
+    ],
+    castleEnd: { c: 8, r: 7 }
+  }
+};
 
 const TOWER_TYPES = {
   archer:  { name:'ARCHER',  icon:'\u{1F3F9}', cost:30, range:2.4, dmg:12, rate:1.0, color:'#cb8', proj:'#fea', desc:'Medieval' },
@@ -151,7 +180,7 @@ const G = {
   canvas:null, ctx:null, w:0, h:0, cell:0, ox:0, oy:0,
   hp:20, gold:120, wave:0, running:false, gameOver:false, victory:false,
   enemies:[], towers:[], projectiles:[], particles:[],
-  pathPx:[], occupied:new Set(),
+  pathsPx:[], occupied:new Set(), map:'donjon',
   spawnQueue:[], spawnTimer:0,
   selectedType:null, selectedTower:null,
   hoverCell:null,
@@ -161,7 +190,7 @@ const G = {
   stats:{ kills:0, goldEarned:0, towersBuilt:0, dmgDealt:0 },
   best:{ wave:0, kills:0, totalXp:0, spentXp:0, achievements:{}, unlocks:{} },
   screen:'title',
-  run:{ character:null, difficulty:null, mods:defaultMods() }
+  run:{ character:null, difficulty:null, map:null, mods:defaultMods() }
 };
 
 const METEOR_COST = 80;
@@ -285,6 +314,38 @@ const ACHIEVEMENTS = {
   nightmare_won:    { name:'EFFROI',             icon:'\u{1F480}', desc:'Atteins la vague 10 en Cauchemar.' }
 };
 
+function generateMatrixAchievements() {
+  const diffStars = { normal:'★', hard:'★★', nightmare:'★★★' };
+  for (const charKey of Object.keys(CHARACTERS)) {
+    for (const mapKey of Object.keys(MAPS)) {
+      for (const diffKey of Object.keys(DIFFICULTIES)) {
+        const id = `clear_${charKey}_${mapKey}_${diffKey}`;
+        ACHIEVEMENTS[id] = {
+          name: `${CHARACTERS[charKey].name} · ${MAPS[mapKey].name}`,
+          icon: diffStars[diffKey] || '★',
+          desc: `Atteins la vague 10 avec ${CHARACTERS[charKey].name} sur ${MAPS[mapKey].name} en ${DIFFICULTIES[diffKey].name}.`,
+          matrix: true, char: charKey, map: mapKey, diff: diffKey
+        };
+      }
+    }
+  }
+  // mega achievement: complete all matrix combos
+  ACHIEVEMENTS.matrix_complete = {
+    name: 'PANTHEON', icon: '\u{1F451}',
+    desc: 'Termine la vague 10 avec toutes les combinaisons heros / carte / difficulte.'
+  };
+}
+
+function triggerMatrixCompletion() {
+  if (G.wave < 10 || !G.run.character || !G.run.map || !G.run.difficulty) return;
+  const id = `clear_${G.run.character}_${G.run.map}_${G.run.difficulty}`;
+  triggerAchievement(id);
+  // check matrix completion
+  const all = Object.entries(ACHIEVEMENTS).filter(([_, a]) => a.matrix);
+  const got = all.every(([k]) => (G.best.achievements || {})[k]);
+  if (got) triggerAchievement('matrix_complete');
+}
+
 function triggerAchievement(id) {
   if (!ACHIEVEMENTS[id]) return;
   G.best.achievements = G.best.achievements || {};
@@ -357,13 +418,35 @@ const CARDS = [
     desc:'Debloque la Tesla pour ce run.',
     apply:() => { G.run.mods.teslaUnlocked = true; buildShop(); updateShopUI(); },
     available:() => !G.run.mods.teslaUnlocked },
+  // ===== Cards unlocked by achievements =====
+  { id:'tempest',   icon:'\u{26C8}', name:'TEMPETE TESLA', rarity:'epic',
+    desc:'Tesla : +2 cibles chainees, +20% degats.',
+    unlockedBy: 'tesla_4kill',
+    apply:() => { G.run.mods.teslaChainBonus += 2; G.run.mods.towerTypeDmgMul.tesla *= 1.2; } },
+  { id:'meteorRain',icon:'\u{1F320}', name:'PLUIE METEORIQUE', rarity:'epic',
+    desc:'Meteor : +60% degats, AOE etendu.',
+    unlockedBy: 'meteor_5kill',
+    apply:() => { G.run.mods.meteorDmgMul *= 1.6; G.run.mods.meteorRadiusMul = (G.run.mods.meteorRadiusMul || 1) * 1.4; } },
+  { id:'alchemy',   icon:'\u{1F9EA}', name:'OR ALCHIMIQUE', rarity:'epic',
+    desc:'Or gagne x2, mais -8 HP maintenant.',
+    unlockedBy: 'wave_20',
+    apply:() => { G.run.mods.goldMul *= 2; G.hp = Math.max(1, G.hp - 8); } },
+  { id:'master',    icon:'\u{1F451}', name:'MAITRE D\'OEUVRE', rarity:'epic',
+    desc:'Toutes les nouvelles tours commencent au lvl 2.',
+    unlockedBy: 'tower_lvl3',
+    apply:() => { G.run.mods.startTowerLevel = Math.max(2, G.run.mods.startTowerLevel || 1); } },
 ];
+
+function isCardUnlocked(card) {
+  if (!card.unlockedBy) return true;
+  return !!(G.best.achievements || {})[card.unlockedBy];
+}
 
 const RARITY_COLOR = { common:'#8af', rare:'#a7f', epic:'#fc3' };
 const RARITY_LABEL = { common:'Commun', rare:'Rare', epic:'Epique' };
 
 function drawCardChoices() {
-  const pool = CARDS.filter(c => !c.available || c.available());
+  const pool = CARDS.filter(c => isCardUnlocked(c) && (!c.available || c.available()));
   const target = (G.run.mods && G.run.mods.draftSize) || 3;
   const pick = [];
   while (pick.length < target && pool.length) {
@@ -389,7 +472,7 @@ function defaultMods() {
     towerTypeDmgMul: { archer:1, laser:1, plasma:1, tesla:1 },
     towerTypeRateMul: { archer:1, laser:1, plasma:1, tesla:1 },
     plasmaAoeMul: 1, teslaChainBonus: 0,
-    meteorCostMul: 1, meteorDmgMul: 1,
+    meteorCostMul: 1, meteorDmgMul: 1, meteorRadiusMul: 1,
     sellRatio: 0.6, goldPerWave: 0, hpPerWave: 0,
     startGold: 0, startHp: 0, startArcher: false, draftSize: 3
   };
@@ -452,24 +535,28 @@ function layout() {
   G.cell = Math.min(G.w / COLS, G.h / ROWS);
   G.ox = (G.w - G.cell * COLS) / 2;
   G.oy = (G.h - G.cell * ROWS) / 2;
-  G.pathPx = PATH.map(p => ({
+  const map = MAPS[G.map] || MAPS.donjon;
+  G.pathsPx = map.paths.map(path => path.map(p => ({
     x: G.ox + (p.c + 0.5) * G.cell,
     y: G.oy + (p.r + 0.5) * G.cell
-  }));
+  })));
   computePathCells();
 }
 
 function computePathCells() {
   G.pathCells = new Set();
-  for (let i = 0; i < PATH.length - 1; i++) {
-    const a = PATH[i], b = PATH[i+1];
-    const dc = Math.sign(b.c - a.c), dr = Math.sign(b.r - a.r);
-    let c = a.c, r = a.r;
-    while (c !== b.c || r !== b.r) {
-      if (c >= 0 && c < COLS && r >= 0 && r < ROWS) G.pathCells.add(c+','+r);
-      c += dc; r += dr;
+  const map = MAPS[G.map] || MAPS.donjon;
+  for (const path of map.paths) {
+    for (let i = 0; i < path.length - 1; i++) {
+      const a = path[i], b = path[i+1];
+      const dc = Math.sign(b.c - a.c), dr = Math.sign(b.r - a.r);
+      let c = a.c, r = a.r;
+      while (c !== b.c || r !== b.r) {
+        if (c >= 0 && c < COLS && r >= 0 && r < ROWS) G.pathCells.add(c+','+r);
+        c += dc; r += dr;
+      }
+      if (b.c >= 0 && b.c < COLS && b.r >= 0 && b.r < ROWS) G.pathCells.add(b.c+','+b.r);
     }
-    if (b.c >= 0 && b.c < COLS && b.r >= 0 && b.r < ROWS) G.pathCells.add(b.c+','+b.r);
   }
 }
 
@@ -487,9 +574,10 @@ function isOccupied(c, r) { return G.occupied.has(c+','+r); }
 
 // ===== Enemy =====
 class Enemy {
-  constructor(type, hpMul) {
+  constructor(type, hpMul, pathIdx) {
     const t = ENEMY_TYPES[type];
     this.type = type;
+    this.pathIdx = pathIdx || 0;
     this.maxHp = t.hp * hpMul * G.run.mods.enemyHpMul;
     this.hp = this.maxHp;
     this.speed = t.speed;
@@ -498,21 +586,24 @@ class Enemy {
     this.size = t.size;
     this.seg = 0;
     this.t = 0;
-    this.x = G.pathPx[0].x;
-    this.y = G.pathPx[0].y;
+    const path = G.pathsPx[this.pathIdx] || G.pathsPx[0];
+    this.x = path[0].x;
+    this.y = path[0].y;
     this.dead = false;
     this.reached = false;
     this.flash = 0;
     this.slow = 0;
   }
+  path() { return G.pathsPx[this.pathIdx] || G.pathsPx[0]; }
   update(dt) {
     if (this.dead || this.reached) return;
     if (this.flash > 0) this.flash -= dt;
     let speed = this.speed;
     if (this.slow > 0) { speed *= 0.5; this.slow -= dt; }
     let remaining = speed * dt;
-    while (remaining > 0 && this.seg < G.pathPx.length - 1) {
-      const a = G.pathPx[this.seg], b = G.pathPx[this.seg + 1];
+    const p = this.path();
+    while (remaining > 0 && this.seg < p.length - 1) {
+      const a = p[this.seg], b = p[this.seg + 1];
       const segLen = Math.hypot(b.x - a.x, b.y - a.y) / G.cell;
       const stepLen = remaining;
       const newT = this.t + stepLen / segLen;
@@ -525,13 +616,13 @@ class Enemy {
         remaining = 0;
       }
     }
-    if (this.seg >= G.pathPx.length - 1) {
+    if (this.seg >= p.length - 1) {
       this.reached = true;
       G.hp--;
       spawnParticles(this.x, this.y, '#f55', 8);
       return;
     }
-    const a = G.pathPx[this.seg], b = G.pathPx[this.seg + 1];
+    const a = p[this.seg], b = p[this.seg + 1];
     this.x = a.x + (b.x - a.x) * this.t;
     this.y = a.y + (b.y - a.y) * this.t;
   }
@@ -625,7 +716,8 @@ function startWave() {
   if (G.spawnQueue.length || G.enemies.length) return;
   const w = getWave(G.wave);
   const hpMul = 1 + G.wave * 0.18;
-  G.spawnQueue = w.map(t => ({ type:t, hpMul }));
+  const pathCount = (MAPS[G.map] || MAPS.donjon).paths.length;
+  G.spawnQueue = w.map((t, i) => ({ type:t, hpMul, pathIdx: i % pathCount }));
   G.spawnTimer = 0;
   G.wave++;
   // start-of-wave bonuses (after wave 1+)
@@ -661,7 +753,7 @@ function updateSpawning(dt) {
   G.spawnTimer -= dt;
   if (G.spawnTimer <= 0) {
     const s = G.spawnQueue.shift();
-    G.enemies.push(new Enemy(s.type, s.hpMul));
+    G.enemies.push(new Enemy(s.type, s.hpMul, s.pathIdx || 0));
     G.spawnTimer = 0.7;
   }
 }
@@ -707,13 +799,15 @@ class Tower {
     return this.def.rate * Math.pow(0.85, this.level - 1) / (tMul * gMul);
   }
   findTarget() {
-    let best = null, bestProgress = -1;
+    let best = null, bestScore = -1;
     for (const e of G.enemies) {
       if (e.dead || e.reached) continue;
       const dx = e.x - this.x, dy = e.y - this.y;
       if (dx*dx + dy*dy > this.range*this.range) continue;
-      const prog = e.seg + e.t;
-      if (prog > bestProgress) { bestProgress = prog; best = e; }
+      // prefer enemies further along their path (closer to castle)
+      const total = (e.path().length - 1) || 1;
+      const score = (e.seg + e.t) / total;
+      if (score > bestScore) { bestScore = score; best = e; }
     }
     return best;
   }
@@ -872,7 +966,7 @@ class Meteor {
     this.y = -100 + (this.ty - (-100)) * k;
     if (k >= 1 && !this.exploded) {
       this.exploded = true;
-      const r = METEOR_RADIUS * G.cell;
+      const r = METEOR_RADIUS * G.cell * (G.run.mods.meteorRadiusMul || 1);
       const dmg = METEOR_DMG * G.run.mods.meteorDmgMul;
       let kc = 0;
       for (const e of G.enemies) {
@@ -1209,10 +1303,13 @@ function showAchievements() {
   const m = document.getElementById('msg');
   m.classList.add('wide');
   const unlocked = G.best.achievements || {};
-  let cells = '';
+  const general = [], matrix = [];
   for (const [id, a] of Object.entries(ACHIEVEMENTS)) {
+    (a.matrix ? matrix : general).push([id, a]);
+  }
+  const renderCells = list => list.map(([id, a]) => {
     const lk = unlocked[id] ? '' : 'locked';
-    cells += `
+    return `
       <div class="achCell ${lk}">
         <div class="ci">${a.icon}</div>
         <div>
@@ -1220,12 +1317,16 @@ function showAchievements() {
           <div class="cd">${a.desc}</div>
         </div>
       </div>`;
-  }
+  }).join('');
+  const matrixGot = matrix.filter(([k]) => unlocked[k]).length;
   const tot = Object.keys(ACHIEVEMENTS).length;
   const got = Object.keys(unlocked).length;
   m.innerHTML = `
     <h1>SUCCES (${got}/${tot})</h1>
-    <div class="achGrid">${cells}</div>
+    <div class="meta">Pantheon : <b>${matrixGot}/${matrix.length}</b> combinaisons</div>
+    <div class="achGrid">${renderCells(general)}</div>
+    <div class="stepLabel" style="margin-top:10px">Pantheon (heros · carte · difficulte)</div>
+    <div class="achGrid">${renderCells(matrix)}</div>
     <button id="backBtn">← Retour</button>
   `;
   document.getElementById('backBtn').onclick = showTitle;
@@ -1258,8 +1359,40 @@ function showCharSelect() {
   for (const el of m.querySelectorAll('.pick-card')) {
     el.onclick = () => { G.run.character = el.dataset.char; showCharSelect(); };
   }
-  document.getElementById('goBtn').onclick = () => G.run.character && showDiffSelect();
+  document.getElementById('goBtn').onclick = () => G.run.character && showMapSelect();
   document.getElementById('backBtn').onclick = showTitle;
+}
+
+function showMapSelect() {
+  G.screen = 'mapSelect';
+  const m = document.getElementById('msg');
+  m.classList.add('wide');
+  let cards = '';
+  for (const [k, mp] of Object.entries(MAPS)) {
+    const sel = G.run.map === k ? 'selected' : '';
+    const spawns = mp.paths.length;
+    cards += `
+      <div class="pick-card ${sel}" data-map="${k}" style="--c:#4af">
+        <div class="pi">${mp.icon}</div>
+        <div class="ptxt">
+          <div class="pname">${mp.name} <span style="font-size:9px;color:#8af">${spawns} entree${spawns>1?'s':''}</span></div>
+          <div class="pdesc">${mp.desc}</div>
+        </div>
+      </div>`;
+  }
+  m.innerHTML = `
+    <div class="stepLabel">2 / 3 — Carte</div>
+    <h1>CHOISIS LA CARTE</h1>
+    <div class="picker">${cards}</div>
+    <button id="goBtn" ${G.run.map ? '' : 'disabled'}>SUIVANT</button>
+    <button id="backBtn">← Retour</button>
+  `;
+  m.classList.remove('hidden');
+  for (const el of m.querySelectorAll('.pick-card')) {
+    el.onclick = () => { G.run.map = el.dataset.map; showMapSelect(); };
+  }
+  document.getElementById('goBtn').onclick = () => G.run.map && showDiffSelect();
+  document.getElementById('backBtn').onclick = showCharSelect;
 }
 
 function showDiffSelect() {
@@ -1279,7 +1412,7 @@ function showDiffSelect() {
       </div>`;
   }
   m.innerHTML = `
-    <div class="stepLabel">2 / 2 — Difficulte</div>
+    <div class="stepLabel">3 / 3 — Difficulte</div>
     <h1>CHOISIS LA DIFFICULTE</h1>
     <div class="picker">${cards}</div>
     <button id="goBtn" ${G.run.difficulty ? '' : 'disabled'}>LANCER LE RUN</button>
@@ -1290,7 +1423,7 @@ function showDiffSelect() {
     el.onclick = () => { G.run.difficulty = el.dataset.diff; showDiffSelect(); };
   }
   document.getElementById('goBtn').onclick = () => G.run.difficulty && startRun();
-  document.getElementById('backBtn').onclick = showCharSelect;
+  document.getElementById('backBtn').onclick = showMapSelect;
 }
 
 function showCardDraft() {
@@ -1347,10 +1480,13 @@ function startRun() {
   G.run.cardsTaken = [];
   G.run.lastDraftWave = 0;
   G.run.runXp = 0;
+  // apply map
+  G.map = G.run.map || 'donjon';
   // reset gameplay state
   G.enemies = []; G.towers = []; G.projectiles = []; G.particles = [];
   G.occupied.clear();
   G.spawnQueue = []; G.wave = 0;
+  layout();
   const m = G.run.mods;
   G.gold = Math.floor(120 * m.goldMul) + (m.startGold || 0);
   G.hp = Math.max(1, Math.floor(20 * m.startHpMul) + (m.startHp || 0));
@@ -1381,7 +1517,7 @@ function placeFreeArcher() {
     }
   }
   if (!candidates.length) return;
-  const start = G.pathPx[0];
+  const start = G.pathsPx[0][0];
   candidates.sort((a, b) => {
     const ca = cellCenter(a.c, a.r);
     const cb = cellCenter(b.c, b.r);
@@ -1448,7 +1584,7 @@ function drawBackground(ctx) {
 }
 
 function drawPath(ctx) {
-  // stone/circuit tiles
+  // stone/circuit tiles (union of all paths)
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
       if (!isPath(c, r)) continue;
@@ -1458,7 +1594,6 @@ function drawPath(ctx) {
       ctx.strokeStyle = '#5a4428';
       ctx.lineWidth = 2;
       ctx.strokeRect(x+1, y+1, G.cell-2, G.cell-2);
-      // neon circuit
       ctx.strokeStyle = '#4afa';
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -1469,16 +1604,20 @@ function drawPath(ctx) {
       ctx.stroke();
     }
   }
-  // spawn portal
-  const start = G.pathPx[0], next = G.pathPx[1];
-  ctx.save();
-  ctx.translate(start.x, start.y);
-  ctx.fillStyle = '#f0a';
-  ctx.shadowColor = '#f0a'; ctx.shadowBlur = 16;
-  ctx.beginPath(); ctx.arc(0, 0, G.cell*0.3 + Math.sin(G.time*4)*2, 0, Math.PI*2); ctx.fill();
-  ctx.restore();
-  // castle at end
-  const end = G.pathPx[G.pathPx.length - 1];
+  // spawn portals (one per path)
+  for (const path of G.pathsPx) {
+    const start = path[0];
+    ctx.save();
+    ctx.translate(start.x, start.y);
+    ctx.fillStyle = '#f0a';
+    ctx.shadowColor = '#f0a'; ctx.shadowBlur = 16;
+    ctx.beginPath(); ctx.arc(0, 0, G.cell*0.3 + Math.sin(G.time*4)*2, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+  // castle at the configured castleEnd
+  const map = MAPS[G.map] || MAPS.donjon;
+  const ce = map.castleEnd;
+  const end = { x: G.ox + (ce.c + 0.5) * G.cell, y: G.oy + (ce.r + 0.5) * G.cell };
   ctx.save();
   ctx.translate(end.x, end.y);
   ctx.fillStyle = '#445';
@@ -1558,7 +1697,10 @@ function update(dt) {
     }
     // wave milestones
     if (G.wave >= 5)  triggerAchievement('wave_5');
-    if (G.wave >= 10) triggerAchievement('wave_10');
+    if (G.wave >= 10) {
+      triggerAchievement('wave_10');
+      triggerMatrixCompletion();
+    }
     if (G.wave >= 20) triggerAchievement('wave_20');
     if (G.wave >= 30) triggerAchievement('wave_30');
     // card draft every 2 waves
@@ -1614,6 +1756,7 @@ function loop(ts) {
 function init() {
   G.canvas = document.getElementById('canvas');
   G.ctx = G.canvas.getContext('2d');
+  generateMatrixAchievements();
   layout();
   setupInput();
   loadBest();
