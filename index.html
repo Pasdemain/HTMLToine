@@ -48,6 +48,21 @@
   #msg button { padding: 10px 22px; font-size: 14px; font-weight: bold; background: linear-gradient(180deg, #4af 0%, #26a 100%); color: #fff; border: none; border-radius: 6px; cursor: pointer; letter-spacing: 1px; }
   #msg button:active { transform: scale(0.96); }
   #msg.hidden { display: none; }
+  #msg.wide { max-width: 95%; padding: 14px 16px; }
+  .picker { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; max-height: 60vh; overflow-y: auto; }
+  .pick-card { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: linear-gradient(135deg, #1a1838 0%, #0e0c25 100%); border: 2px solid #345; border-radius: 10px; cursor: pointer; text-align: left; transition: all 0.15s; }
+  .pick-card:active { transform: scale(0.98); }
+  .pick-card.selected { border-color: var(--c, #4af); box-shadow: 0 0 18px var(--c, #4af); background: linear-gradient(135deg, #2a2855 0%, #1a1838 100%); }
+  .pick-card .pi { font-size: 32px; line-height: 1; flex-shrink: 0; }
+  .pick-card .ptxt { flex: 1; }
+  .pick-card .pname { font-size: 14px; font-weight: bold; color: var(--c, #4af); letter-spacing: 1px; }
+  .pick-card .pdesc { font-size: 11px; color: #aab; margin-top: 3px; line-height: 1.35; }
+  .stepLabel { font-size: 10px; letter-spacing: 2px; color: #4af; text-transform: uppercase; margin-bottom: 4px; }
+  #goBtn { width: 100%; margin-top: 10px; padding: 12px !important; font-size: 15px !important; }
+  #goBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+  #backBtn { background: transparent !important; color: #8af !important; padding: 6px !important; font-size: 11px !important; margin-top: 4px; box-shadow: none !important; }
+  .meta { font-size: 11px; color: #8af; margin: 6px 0; letter-spacing: 0.5px; }
+  .meta b { color: #fc3; }
   #speedBtn { position: absolute; top: calc(8px + env(safe-area-inset-top)); right: calc(10px + env(safe-area-inset-right)); padding: 4px 10px; background: rgba(74,170,255,0.2); border: 1px solid #4af; border-radius: 4px; color: #cef; font-weight: bold; font-size: 12px; z-index: 6; cursor: pointer; }
   #speedBtn:active { transform: scale(0.95); }
 </style>
@@ -120,12 +135,88 @@ const G = {
   speed:1, paused:false,
   meteorReady:true, meteorCharge:0, meteorAiming:false,
   stats:{ kills:0, goldEarned:0, towersBuilt:0, dmgDealt:0 },
-  best:{ wave:0, kills:0 }
+  best:{ wave:0, kills:0, totalXp:0 },
+  screen:'title',
+  run:{ character:null, difficulty:null, mods:defaultMods() }
 };
 
 const METEOR_COST = 80;
 const METEOR_DMG = 120;
 const METEOR_RADIUS = 1.6;
+
+// ===== Roguelite Run Config =====
+const CHARACTERS = {
+  forgeron: {
+    name: 'FORGERON',
+    icon: '\u{1F528}',
+    color: '#fc6',
+    desc: 'Maitre des forges. Tours +20% degats, ameliorations -25% cout.',
+    mods: { towerDmgMul: 1.2, upgradeCostMul: 0.75 },
+    unlocked: true
+  },
+  hacker: {
+    name: 'HACKER',
+    icon: '\u{1F4BB}',
+    color: '#4af',
+    desc: 'Tours commencent au niveau 2. Mais portee globale -10%.',
+    mods: { startTowerLevel: 2, towerRangeMul: 0.9 },
+    unlocked: true
+  },
+  druide: {
+    name: 'DRUIDE-CYBER',
+    icon: '\u{1F33F}',
+    color: '#5fa',
+    desc: 'Or +30%, mais HP de depart -25%. Tesla disponible des le debut.',
+    mods: { goldMul: 1.3, startHpMul: 0.75, teslaUnlocked: true },
+    unlocked: true
+  }
+};
+
+const DIFFICULTIES = {
+  normal: {
+    name: 'NORMAL',
+    color: '#5fa',
+    desc: 'Equilibre. XP x1.',
+    mods: { enemyHpMul: 1, xpMul: 1 }
+  },
+  hard: {
+    name: 'DIFFICILE',
+    color: '#fc3',
+    desc: 'HP ennemis +30%. XP x1.5.',
+    mods: { enemyHpMul: 1.3, xpMul: 1.5 }
+  },
+  nightmare: {
+    name: 'CAUCHEMAR',
+    color: '#f55',
+    desc: 'HP ennemis +60%. Or +0%. XP x2.',
+    mods: { enemyHpMul: 1.6, goldMul: 0.85, xpMul: 2 }
+  }
+};
+
+function defaultMods() {
+  return {
+    towerDmgMul: 1, towerRangeMul: 1, upgradeCostMul: 1,
+    enemyHpMul: 1, goldMul: 1, xpMul: 1,
+    startTowerLevel: 1, startHpMul: 1, teslaUnlocked: false
+  };
+}
+
+function applyMods(...sources) {
+  const out = defaultMods();
+  for (const src of sources) {
+    if (!src) continue;
+    for (const k of Object.keys(src)) {
+      if (typeof src[k] === 'number' && typeof out[k] === 'number') {
+        // multiplicative for muls, additive otherwise
+        if (k.endsWith('Mul')) out[k] *= src[k];
+        else out[k] = src[k];
+      } else {
+        out[k] = src[k];
+      }
+    }
+  }
+  return out;
+}
 
 function loadBest() {
   try {
@@ -191,7 +282,7 @@ class Enemy {
   constructor(type, hpMul) {
     const t = ENEMY_TYPES[type];
     this.type = type;
-    this.maxHp = t.hp * hpMul;
+    this.maxHp = t.hp * hpMul * G.run.mods.enemyHpMul;
     this.hp = this.maxHp;
     this.speed = t.speed;
     this.gold = t.gold;
@@ -243,8 +334,9 @@ class Enemy {
     G.stats.dmgDealt += d;
     if (this.hp <= 0) {
       this.dead = true;
-      G.gold += this.gold;
-      G.stats.goldEarned += this.gold;
+      const earned = Math.floor(this.gold * G.run.mods.goldMul);
+      G.gold += earned;
+      G.stats.goldEarned += earned;
       G.stats.kills++;
       spawnParticles(this.x, this.y, this.color, 10);
     }
@@ -366,14 +458,16 @@ class Tower {
     this.def = def;
     const center = cellCenter(c, r);
     this.x = center.x; this.y = center.y;
-    this.range = def.range * G.cell;
+    this.range = def.range * G.cell * G.run.mods.towerRangeMul;
     this.cooldown = 0;
     this.angle = -Math.PI/2;
-    this.level = 1;
+    this.level = G.run.mods.startTowerLevel || 1;
     this.totalCost = def.cost;
     this.fireFlash = 0;
+    // apply level-from-mod range boost retroactively
+    for (let i = 1; i < this.level; i++) this.range *= 1.15;
   }
-  upgradeCost() { return Math.floor(this.def.cost * (1 + this.level * 0.8)); }
+  upgradeCost() { return Math.floor(this.def.cost * (1 + this.level * 0.8) * G.run.mods.upgradeCostMul); }
   sellValue() { return Math.floor(this.totalCost * 0.6); }
   upgrade() {
     const cost = this.upgradeCost();
@@ -384,7 +478,7 @@ class Tower {
     this.range *= 1.15;
     return true;
   }
-  effDmg() { return this.def.dmg * (1 + (this.level - 1) * 0.6); }
+  effDmg() { return this.def.dmg * (1 + (this.level - 1) * 0.6) * G.run.mods.towerDmgMul; }
   effRate() { return this.def.rate * Math.pow(0.85, this.level - 1); }
   findTarget() {
     let best = null, bestProgress = -1;
@@ -613,10 +707,16 @@ function drawParticles(ctx) {
 }
 
 // ===== Shop UI =====
+function isTowerLocked(key) {
+  if (key === 'tesla') return !G.run.mods.teslaUnlocked;
+  return false;
+}
+
 function buildShop() {
   const shop = document.getElementById('shop');
   shop.innerHTML = '';
   for (const [key, t] of Object.entries(TOWER_TYPES)) {
+    if (isTowerLocked(key)) continue;
     const el = document.createElement('div');
     el.className = 'tower';
     el.dataset.type = key;
@@ -780,12 +880,7 @@ function setupInput() {
     document.getElementById('meteorBtn').classList.toggle('armed', G.meteorAiming);
   });
 
-  document.getElementById('startBtn').addEventListener('click', () => {
-    document.getElementById('msg').classList.add('hidden');
-    G.running = true;
-    document.getElementById('waveBtn').classList.remove('hidden');
-    document.getElementById('meteorBtn').classList.remove('hidden');
-  });
+  // (startBtn removed; new run flow uses showTitle → showCharSelect → showDiffSelect → startRun)
 
   window.addEventListener('resize', layout);
   window.addEventListener('orientationchange', () => setTimeout(layout, 200));
@@ -793,12 +888,107 @@ function setupInput() {
 
 function showMessage(title, body, btnLabel, onClick) {
   const m = document.getElementById('msg');
-  m.querySelector('h1').textContent = title;
-  m.querySelector('p').innerHTML = body;
-  const btn = m.querySelector('button');
-  btn.textContent = btnLabel;
-  btn.onclick = onClick;
+  m.classList.remove('wide');
+  m.innerHTML = `<h1>${title}</h1><p>${body}</p><button id="msgBtn">${btnLabel}</button>`;
+  document.getElementById('msgBtn').onclick = onClick;
   m.classList.remove('hidden');
+}
+
+// ===== Run Setup Screens =====
+function showTitle() {
+  G.screen = 'title';
+  const m = document.getElementById('msg');
+  m.classList.remove('wide');
+  const best = G.best.wave > 0
+    ? `<div class="meta">Meilleure vague : <b>${G.best.wave}</b> &nbsp; · &nbsp; XP total : <b>${G.best.totalXp||0}</b></div>`
+    : '';
+  m.innerHTML = `
+    <h1>CYBER CASTLE DEFENSE</h1>
+    <p>Defendez le donjon contre les hordes cyber-medievales.</p>
+    ${best}
+    <button id="newRunBtn">NOUVEAU RUN</button>
+  `;
+  m.classList.remove('hidden');
+  document.getElementById('newRunBtn').onclick = showCharSelect;
+}
+
+function showCharSelect() {
+  G.screen = 'charSelect';
+  const m = document.getElementById('msg');
+  m.classList.add('wide');
+  let cards = '';
+  for (const [k, c] of Object.entries(CHARACTERS)) {
+    const sel = G.run.character === k ? 'selected' : '';
+    cards += `
+      <div class="pick-card ${sel}" data-char="${k}" style="--c:${c.color}">
+        <div class="pi">${c.icon}</div>
+        <div class="ptxt">
+          <div class="pname">${c.name}</div>
+          <div class="pdesc">${c.desc}</div>
+        </div>
+      </div>`;
+  }
+  m.innerHTML = `
+    <div class="stepLabel">1 / 2 — Heros</div>
+    <h1>CHOISIS TON HEROS</h1>
+    <div class="picker">${cards}</div>
+    <button id="goBtn" ${G.run.character ? '' : 'disabled'}>SUIVANT</button>
+    <button id="backBtn">← Retour</button>
+  `;
+  m.classList.remove('hidden');
+  for (const el of m.querySelectorAll('.pick-card')) {
+    el.onclick = () => { G.run.character = el.dataset.char; showCharSelect(); };
+  }
+  document.getElementById('goBtn').onclick = () => G.run.character && showDiffSelect();
+  document.getElementById('backBtn').onclick = showTitle;
+}
+
+function showDiffSelect() {
+  G.screen = 'diffSelect';
+  const m = document.getElementById('msg');
+  m.classList.add('wide');
+  let cards = '';
+  for (const [k, d] of Object.entries(DIFFICULTIES)) {
+    const sel = G.run.difficulty === k ? 'selected' : '';
+    cards += `
+      <div class="pick-card ${sel}" data-diff="${k}" style="--c:${d.color}">
+        <div class="pi" style="color:${d.color}">★</div>
+        <div class="ptxt">
+          <div class="pname">${d.name}</div>
+          <div class="pdesc">${d.desc}</div>
+        </div>
+      </div>`;
+  }
+  m.innerHTML = `
+    <div class="stepLabel">2 / 2 — Difficulte</div>
+    <h1>CHOISIS LA DIFFICULTE</h1>
+    <div class="picker">${cards}</div>
+    <button id="goBtn" ${G.run.difficulty ? '' : 'disabled'}>LANCER LE RUN</button>
+    <button id="backBtn">← Retour</button>
+  `;
+  m.classList.remove('hidden');
+  for (const el of m.querySelectorAll('.pick-card')) {
+    el.onclick = () => { G.run.difficulty = el.dataset.diff; showDiffSelect(); };
+  }
+  document.getElementById('goBtn').onclick = () => G.run.difficulty && startRun();
+  document.getElementById('backBtn').onclick = showCharSelect;
+}
+
+function startRun() {
+  const char = CHARACTERS[G.run.character];
+  const diff = DIFFICULTIES[G.run.difficulty];
+  G.run.mods = applyMods(char.mods, diff.mods);
+  // initial gold/hp adjusted by mods
+  G.gold = Math.floor(120 * G.run.mods.goldMul);
+  G.hp = Math.max(1, Math.floor(20 * G.run.mods.startHpMul));
+  // shop locks tesla unless unlocked
+  G.screen = 'playing';
+  document.getElementById('msg').classList.add('hidden');
+  G.running = true;
+  document.getElementById('waveBtn').classList.remove('hidden');
+  document.getElementById('meteorBtn').classList.remove('hidden');
+  buildShop();
+  updateShopUI();
 }
 
 function showRunSummary(victory) {
@@ -995,15 +1185,9 @@ function init() {
   G.canvas = document.getElementById('canvas');
   G.ctx = G.canvas.getContext('2d');
   layout();
-  buildShop();
   setupInput();
-  updateShopUI();
   loadBest();
-  if (G.best.wave > 0) {
-    const p = document.querySelector('#msg p');
-    p.innerHTML = p.textContent +
-      `<br><br><span style="color:#fc3">Meilleure vague : <b>${G.best.wave}</b></span>`;
-  }
+  showTitle();
   requestAnimationFrame(loop);
 }
 
