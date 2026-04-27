@@ -89,6 +89,8 @@
   .metaCell .mb.owned { background: transparent; color: #5fa; padding: 6px 4px; }
   #speedBtn { position: absolute; top: calc(8px + env(safe-area-inset-top)); right: calc(10px + env(safe-area-inset-right)); padding: 4px 10px; background: rgba(74,170,255,0.2); border: 1px solid #4af; border-radius: 4px; color: #cef; font-weight: bold; font-size: 12px; z-index: 6; cursor: pointer; }
   #speedBtn:active { transform: scale(0.95); }
+  #camBtn { position: absolute; top: calc(8px + env(safe-area-inset-top)); left: calc(10px + env(safe-area-inset-left)); padding: 4px 10px; background: rgba(255,200,80,0.18); border: 1px solid #fc6; border-radius: 4px; color: #fec; font-weight: bold; font-size: 12px; z-index: 6; cursor: pointer; }
+  #camBtn:active { transform: scale(0.95); }
 </style>
 </head>
 <body>
@@ -114,6 +116,7 @@
   </div>
   <div id="shop"></div>
   <button id="speedBtn">1x</button>
+  <button id="camBtn">⌖</button>
   <div id="msg">
     <h1>CYBER CASTLE DEFENSE</h1>
     <p>Defendez le donjon contre les hordes cyber-medievales. Touchez le terrain pour placer une tour.</p>
@@ -213,7 +216,8 @@ const ENEMY_TYPES = {
 
 // ===== Game State =====
 const G = {
-  canvas:null, ctx:null, w:0, h:0, cell:0, ox:0, oy:0,
+  canvas:null, ctx:null, w:0, h:0, dpr:1, cell:0, ox:0, oy:0,
+  cam:{ x:0, y:0, scale:1, minScale:0.5, maxScale:3, defaultScale:1 },
   hp:20, gold:120, wave:0, running:false, gameOver:false, victory:false,
   enemies:[], towers:[], projectiles:[], particles:[],
   pathsPx:[], occupied:new Set(), map:'donjon',
@@ -621,6 +625,7 @@ function layout() {
   const c = G.canvas;
   const rect = c.getBoundingClientRect();
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  G.dpr = dpr;
   c.width  = Math.floor(rect.width * dpr);
   c.height = Math.floor(rect.height * dpr);
   G.ctx.setTransform(dpr,0,0,dpr,0,0);
@@ -628,12 +633,50 @@ function layout() {
   G.cell = Math.min(G.w / COLS, G.h / ROWS);
   G.ox = (G.w - G.cell * COLS) / 2;
   G.oy = (G.h - G.cell * ROWS) / 2;
+  resetCamera();
   const map = MAPS[G.map] || MAPS.donjon;
   G.pathsPx = map.paths.map(path => path.map(p => ({
     x: G.ox + (p.c + 0.5) * G.cell,
     y: G.oy + (p.r + 0.5) * G.cell
   })));
   computePathCells();
+}
+
+function resetCamera() {
+  G.cam.scale = G.cam.defaultScale = 1;
+  G.cam.x = 0;
+  G.cam.y = 0;
+}
+
+function clamp(v, mn, mx) { return Math.max(mn, Math.min(mx, v)); }
+
+function clampCamera() {
+  G.cam.scale = clamp(G.cam.scale, G.cam.minScale, G.cam.maxScale);
+  // keep at least half of the field within the viewport
+  const fieldW = G.cell * COLS * G.cam.scale;
+  const fieldH = G.cell * ROWS * G.cam.scale;
+  const fx = G.ox * G.cam.scale + G.cam.x;
+  const fy = G.oy * G.cam.scale + G.cam.y;
+  const margin = 80;
+  if (fx + fieldW < margin) G.cam.x = margin - fieldW - G.ox * G.cam.scale;
+  if (fy + fieldH < margin) G.cam.y = margin - fieldH - G.oy * G.cam.scale;
+  if (fx > G.w - margin) G.cam.x = G.w - margin - G.ox * G.cam.scale;
+  if (fy > G.h - margin) G.cam.y = G.h - margin - G.oy * G.cam.scale;
+}
+
+function screenToWorld(sx, sy) {
+  return { x: (sx - G.cam.x) / G.cam.scale, y: (sy - G.cam.y) / G.cam.scale };
+}
+
+function zoomAt(sx, sy, factor) {
+  const newScale = clamp(G.cam.scale * factor, G.cam.minScale, G.cam.maxScale);
+  if (newScale === G.cam.scale) return;
+  const wx = (sx - G.cam.x) / G.cam.scale;
+  const wy = (sy - G.cam.y) / G.cam.scale;
+  G.cam.scale = newScale;
+  G.cam.x = sx - wx * newScale;
+  G.cam.y = sy - wy * newScale;
+  clampCamera();
 }
 
 function computePathCells() {
@@ -653,9 +696,10 @@ function computePathCells() {
   }
 }
 
-function cellAt(x, y) {
-  const c = Math.floor((x - G.ox) / G.cell);
-  const r = Math.floor((y - G.oy) / G.cell);
+function cellAt(sx, sy) {
+  const w = screenToWorld(sx, sy);
+  const c = Math.floor((w.x - G.ox) / G.cell);
+  const r = Math.floor((w.y - G.oy) / G.cell);
   if (c < 0 || c >= COLS || r < 0 || r >= ROWS) return null;
   return { c, r };
 }
@@ -1320,36 +1364,81 @@ function updateTowerButtons() {
 
 function setupInput() {
   const c = G.canvas;
-  let touchStart = null;
+  let ts = null;
+  const TAP_PX = 10;
+  function pos(t, rect) { return { x: t.clientX - rect.left, y: t.clientY - rect.top }; }
+  function pinchInfo(touches, rect) {
+    const a = pos(touches[0], rect), b = pos(touches[1], rect);
+    return { dist: Math.hypot(a.x-b.x, a.y-b.y), cx:(a.x+b.x)/2, cy:(a.y+b.y)/2 };
+  }
   c.addEventListener('touchstart', e => {
     e.preventDefault();
-    const p = getEventPos(e);
-    touchStart = { ...p, t: performance.now() };
-    G.hoverCell = cellAt(p.x, p.y);
+    const rect = c.getBoundingClientRect();
+    if (e.touches.length === 1) {
+      const p = pos(e.touches[0], rect);
+      ts = { type:'pan', sx:p.x, sy:p.y, camX:G.cam.x, camY:G.cam.y, moved:false };
+      G.hoverCell = cellAt(p.x, p.y);
+    } else if (e.touches.length >= 2) {
+      const pi = pinchInfo(e.touches, rect);
+      ts = { type:'pinch', startDist:pi.dist, startScale:G.cam.scale,
+             startCx:pi.cx, startCy:pi.cy, camX:G.cam.x, camY:G.cam.y };
+      G.hoverCell = null;
+    }
   }, { passive: false });
   c.addEventListener('touchmove', e => {
     e.preventDefault();
-    const p = getEventPos(e);
-    G.hoverCell = cellAt(p.x, p.y);
+    const rect = c.getBoundingClientRect();
+    if (!ts) return;
+    if (ts.type === 'pan' && e.touches.length === 1) {
+      const p = pos(e.touches[0], rect);
+      const dx = p.x - ts.sx, dy = p.y - ts.sy;
+      if (!ts.moved && Math.hypot(dx, dy) > TAP_PX) { ts.moved = true; G.hoverCell = null; }
+      if (ts.moved) {
+        G.cam.x = ts.camX + dx;
+        G.cam.y = ts.camY + dy;
+        clampCamera();
+      } else {
+        G.hoverCell = cellAt(p.x, p.y);
+      }
+    } else if (ts.type === 'pinch' && e.touches.length >= 2) {
+      const pi = pinchInfo(e.touches, rect);
+      const ratio = pi.dist / ts.startDist;
+      const newScale = clamp(ts.startScale * ratio, G.cam.minScale, G.cam.maxScale);
+      const wx = (ts.startCx - ts.camX) / ts.startScale;
+      const wy = (ts.startCy - ts.camY) / ts.startScale;
+      G.cam.scale = newScale;
+      G.cam.x = pi.cx - wx * newScale;
+      G.cam.y = pi.cy - wy * newScale;
+      clampCamera();
+    }
   }, { passive: false });
   c.addEventListener('touchend', e => {
     e.preventDefault();
-    if (!touchStart) return;
-    const dt = performance.now() - touchStart.t;
-    const p = G.hoverCell ? cellCenter(G.hoverCell.c, G.hoverCell.r) : touchStart;
-    if (dt < 500) onTap(touchStart.x, touchStart.y);
-    G.hoverCell = null;
-    touchStart = null;
+    if (ts && ts.type === 'pan' && !ts.moved) onTap(ts.sx, ts.sy);
+    if (e.touches.length === 0) { ts = null; G.hoverCell = null; }
+    else if (e.touches.length === 1) {
+      const rect = c.getBoundingClientRect();
+      const p = pos(e.touches[0], rect);
+      ts = { type:'pan', sx:p.x, sy:p.y, camX:G.cam.x, camY:G.cam.y, moved:true };
+    }
   }, { passive: false });
   c.addEventListener('mousedown', e => {
-    const p = getEventPos(e);
+    const rect = c.getBoundingClientRect();
+    const p = pos(e, rect);
     G.hoverCell = cellAt(p.x, p.y);
     onTap(p.x, p.y);
   });
   c.addEventListener('mousemove', e => {
-    const p = getEventPos(e);
+    const rect = c.getBoundingClientRect();
+    const p = pos(e, rect);
     G.hoverCell = cellAt(p.x, p.y);
   });
+  c.addEventListener('wheel', e => {
+    e.preventDefault();
+    const rect = c.getBoundingClientRect();
+    const p = pos(e, rect);
+    zoomAt(p.x, p.y, e.deltaY > 0 ? 0.9 : 1.1);
+  }, { passive: false });
 
   document.getElementById('waveBtn').addEventListener('click', () => {
     if (!G.running) return;
@@ -1380,6 +1469,10 @@ function setupInput() {
   document.getElementById('speedBtn').addEventListener('click', () => {
     G.speed = G.speed === 1 ? 2 : G.speed === 2 ? 3 : 1;
     document.getElementById('speedBtn').textContent = G.speed + 'x';
+  });
+
+  document.getElementById('camBtn').addEventListener('click', () => {
+    resetCamera();
   });
 
   document.getElementById('meteorBtn').addEventListener('click', () => {
@@ -1760,23 +1853,22 @@ function showRunSummary(victory) {
 }
 
 // ===== Render =====
-function drawBackground(ctx) {
-  // gradient sky
+function drawSky(ctx) {
   const g = ctx.createLinearGradient(0, 0, 0, G.h);
   g.addColorStop(0, '#0e0a25');
   g.addColorStop(1, '#1a1840');
   ctx.fillStyle = g; ctx.fillRect(0, 0, G.w, G.h);
-  // grid stars
   ctx.fillStyle = '#ffffff20';
   for (let i = 0; i < 40; i++) {
     const x = (i * 137) % G.w;
     const y = (i * 271 + Math.sin(G.time + i) * 20) % G.h;
     ctx.fillRect(x, y, 1, 1);
   }
-  // playfield
+}
+
+function drawField(ctx) {
   ctx.fillStyle = '#0c1428';
   ctx.fillRect(G.ox, G.oy, G.cell * COLS, G.cell * ROWS);
-  // grass cells with subtle grid
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
       if (isPath(c, r)) continue;
@@ -1784,12 +1876,19 @@ function drawBackground(ctx) {
       const shade = (c + r) % 2 ? '#15203a' : '#101a30';
       ctx.fillStyle = shade;
       ctx.fillRect(x, y, G.cell, G.cell);
-      // hex hint
       ctx.strokeStyle = '#1a2a48';
       ctx.lineWidth = 1;
       ctx.strokeRect(x + 0.5, y + 0.5, G.cell - 1, G.cell - 1);
     }
   }
+}
+
+function applyWorldTransform() {
+  G.ctx.setTransform(G.dpr * G.cam.scale, 0, 0, G.dpr * G.cam.scale,
+                     G.dpr * G.cam.x, G.dpr * G.cam.y);
+}
+function applyScreenTransform() {
+  G.ctx.setTransform(G.dpr, 0, 0, G.dpr, 0, 0);
 }
 
 function drawPath(ctx) {
@@ -1874,8 +1973,11 @@ function drawSelectedRange(ctx) {
 
 function render() {
   const ctx = G.ctx;
+  applyScreenTransform();
   ctx.clearRect(0, 0, G.w, G.h);
-  drawBackground(ctx);
+  drawSky(ctx);
+  applyWorldTransform();
+  drawField(ctx);
   drawPath(ctx);
   drawHover(ctx);
   drawSelectedRange(ctx);
@@ -1883,6 +1985,7 @@ function render() {
   for (const e of G.enemies) if (!e.dead && !e.reached) e.draw(ctx);
   for (const p of G.projectiles) p.draw(ctx);
   drawParticles(ctx);
+  applyScreenTransform();
 }
 
 // ===== Main Loop =====
