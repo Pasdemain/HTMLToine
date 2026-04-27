@@ -34,9 +34,24 @@
   #waveBtn { position: absolute; right: calc(10px + env(safe-area-inset-right)); bottom: calc(96px + env(safe-area-inset-bottom)); padding: 10px 14px; background: linear-gradient(180deg, #5fa 0%, #283 100%); color: #022; border: none; border-radius: 8px; font-weight: bold; font-size: 13px; box-shadow: 0 0 12px #5fa8; z-index: 4; cursor: pointer; }
   #waveBtn:active { transform: scale(0.95); }
   #waveBtn.hidden { display: none; }
+  #wavePreview { position: absolute; right: calc(10px + env(safe-area-inset-right)); bottom: calc(140px + env(safe-area-inset-bottom)); display: flex; gap: 3px; padding: 4px 8px; background: rgba(20,16,40,0.85); border: 1px solid #4af6; border-radius: 6px; z-index: 4; max-width: 70%; flex-wrap: wrap; justify-content: flex-end; }
+  #wavePreview .pe { font-size: 14px; line-height: 1; }
+  #wavePreview.hidden { display: none; }
+  #wavePreview .lbl { font-size: 9px; color: #8af; letter-spacing: 1px; align-self: center; margin-right: 4px; text-transform: uppercase; }
   #sellBtn { position: absolute; left: calc(10px + env(safe-area-inset-left)); bottom: calc(96px + env(safe-area-inset-bottom)); padding: 10px 14px; background: linear-gradient(180deg, #f66 0%, #822 100%); color: #fff; border: none; border-radius: 8px; font-weight: bold; font-size: 13px; box-shadow: 0 0 12px #f668; z-index: 4; cursor: pointer; }
   #sellBtn:active { transform: scale(0.95); }
   #sellBtn.hidden { display: none; }
+  #upgradeBtn { position: absolute; left: calc(10px + env(safe-area-inset-left)); bottom: calc(140px + env(safe-area-inset-bottom)); padding: 10px 14px; background: linear-gradient(180deg, #fc3 0%, #850 100%); color: #100; border: none; border-radius: 8px; font-weight: bold; font-size: 13px; box-shadow: 0 0 12px #fc38; z-index: 4; cursor: pointer; }
+  #upgradeBtn:active { transform: scale(0.95); }
+  #upgradeBtn.hidden { display: none; }
+  #upgradeBtn:disabled { opacity: 0.5; }
+  #meteorBtn { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(96px + env(safe-area-inset-bottom)); padding: 10px 16px; background: linear-gradient(180deg, #f80 0%, #520 100%); color: #fff; border: 2px solid #fc6; border-radius: 50px; font-weight: bold; font-size: 13px; box-shadow: 0 0 14px #f808; z-index: 4; cursor: pointer; min-width: 90px; }
+  #meteorBtn:active { transform: translateX(-50%) scale(0.95); }
+  #meteorBtn.armed { background: linear-gradient(180deg, #fc3 0%, #f60 100%); animation: pulse 0.6s infinite alternate; }
+  #meteorBtn.cooling { opacity: 0.5; }
+  @keyframes pulse { from { box-shadow: 0 0 14px #f80; } to { box-shadow: 0 0 30px #fc6; } }
+  #speedBtn { position: absolute; top: calc(8px + env(safe-area-inset-top)); right: calc(10px + env(safe-area-inset-right)); padding: 4px 10px; background: rgba(74,170,255,0.2); border: 1px solid #4af; border-radius: 4px; color: #cef; font-weight: bold; font-size: 12px; z-index: 6; cursor: pointer; }
+  #speedBtn:active { transform: scale(0.95); }
 </style>
 </head>
 <body>
@@ -49,7 +64,11 @@
   <canvas id="canvas"></canvas>
   <div id="shop"></div>
   <button id="waveBtn">VAGUE SUIVANTE</button>
+  <div id="wavePreview" class="hidden"></div>
   <button id="sellBtn" class="hidden">VENDRE</button>
+  <button id="upgradeBtn" class="hidden">AMELIORER</button>
+  <button id="meteorBtn" class="hidden">METEOR</button>
+  <button id="speedBtn">1x</button>
   <div id="msg">
     <h1>CYBER CASTLE DEFENSE</h1>
     <p>Defendez le donjon contre les hordes cyber-medievales. Touchez le terrain pour placer une tour.</p>
@@ -91,8 +110,30 @@ const G = {
   spawnQueue:[], spawnTimer:0,
   selectedType:null, selectedTower:null,
   hoverCell:null,
-  lastTime:0, time:0
+  lastTime:0, time:0,
+  speed:1, paused:false,
+  meteorReady:true, meteorCharge:0, meteorAiming:false,
+  stats:{ kills:0, goldEarned:0, towersBuilt:0, dmgDealt:0 },
+  best:{ wave:0, kills:0 }
 };
+
+const METEOR_COST = 80;
+const METEOR_DMG = 120;
+const METEOR_RADIUS = 1.6;
+
+function loadBest() {
+  try {
+    const raw = localStorage.getItem('htmltoine_best');
+    if (raw) Object.assign(G.best, JSON.parse(raw));
+  } catch (e) {}
+}
+function saveBest() {
+  try {
+    if (G.wave > G.best.wave) G.best.wave = G.wave;
+    if (G.stats.kills > G.best.kills) G.best.kills = G.stats.kills;
+    localStorage.setItem('htmltoine_best', JSON.stringify(G.best));
+  } catch (e) {}
+}
 
 // ===== Layout =====
 function layout() {
@@ -190,11 +231,15 @@ class Enemy {
     this.y = a.y + (b.y - a.y) * this.t;
   }
   damage(d) {
+    if (this.dead) return;
     this.hp -= d;
     this.flash = 0.1;
-    if (this.hp <= 0 && !this.dead) {
+    G.stats.dmgDealt += d;
+    if (this.hp <= 0) {
       this.dead = true;
       G.gold += this.gold;
+      G.stats.goldEarned += this.gold;
+      G.stats.kills++;
       spawnParticles(this.x, this.y, this.color, 10);
     }
   }
@@ -251,15 +296,50 @@ const WAVES = [
   ['boss','knight','knight','goblin','goblin','goblin']
 ];
 
+function generateEndlessWave(n) {
+  const pool = ['goblin','goblin','knight','drone','knight','ogre'];
+  const out = [];
+  const count = 6 + Math.floor(n * 0.7);
+  for (let i = 0; i < count; i++) {
+    out.push(pool[Math.floor(Math.random() * pool.length)]);
+  }
+  if (n % 5 === 0) out.push('boss');
+  if (n > 3 && Math.random() < 0.4) out.push('ogre');
+  return out;
+}
+
+function getWave(idx) {
+  if (idx < WAVES.length) return WAVES[idx];
+  return generateEndlessWave(idx - WAVES.length + 1);
+}
+
 function startWave() {
   if (G.spawnQueue.length || G.enemies.length) return;
-  if (G.wave >= WAVES.length) return;
-  const w = WAVES[G.wave];
-  const hpMul = 1 + G.wave * 0.15;
+  const w = getWave(G.wave);
+  const hpMul = 1 + G.wave * 0.18;
   G.spawnQueue = w.map(t => ({ type:t, hpMul }));
   G.spawnTimer = 0;
   G.wave++;
   document.getElementById('waveBtn').classList.add('hidden');
+  document.getElementById('wavePreview').classList.add('hidden');
+}
+
+function updateWavePreview() {
+  const el = document.getElementById('wavePreview');
+  if (G.spawnQueue.length || G.enemies.length || !G.running || G.gameOver) {
+    el.classList.add('hidden');
+    return;
+  }
+  const next = getWave(G.wave);
+  const counts = {};
+  for (const t of next) counts[t] = (counts[t] || 0) + 1;
+  const ICONS = { goblin:'\u{1F47A}', knight:'\u{1F6E1}', drone:'\u{1F6F8}', ogre:'\u{1F479}', boss:'\u{1F47F}' };
+  let html = '<span class="lbl">Suivant</span>';
+  for (const [k, n] of Object.entries(counts)) {
+    html += `<span class="pe" title="${k}">${ICONS[k]||'?'}${n>1?'×'+n:''}</span>`;
+  }
+  el.innerHTML = html;
+  el.classList.remove('hidden');
 }
 
 function updateSpawning(dt) {
@@ -446,6 +526,57 @@ class Beam {
   }
 }
 
+// ===== Meteor Spell =====
+class Meteor {
+  constructor(tx, ty) {
+    this.tx = tx; this.ty = ty;
+    this.x = tx + 200; this.y = -100;
+    this.t = 0; this.duration = 0.6; this.dead = false;
+    this.exploded = false;
+  }
+  update(dt) {
+    this.t += dt;
+    const k = Math.min(1, this.t / this.duration);
+    this.x = (this.tx + 200) + (this.tx - (this.tx + 200)) * k;
+    this.y = -100 + (this.ty - (-100)) * k;
+    if (k >= 1 && !this.exploded) {
+      this.exploded = true;
+      const r = METEOR_RADIUS * G.cell;
+      for (const e of G.enemies) {
+        if (e.dead || e.reached) continue;
+        if (Math.hypot(e.x - this.tx, e.y - this.ty) <= r) {
+          e.damage(METEOR_DMG);
+          e.slow = 1.0;
+        }
+      }
+      spawnParticles(this.tx, this.ty, '#f80', 30);
+      spawnParticles(this.tx, this.ty, '#fc3', 20);
+      this.dead = true;
+    }
+  }
+  draw(ctx) {
+    ctx.strokeStyle = '#f80'; ctx.lineWidth = 2;
+    ctx.shadowColor = '#f80'; ctx.shadowBlur = 14;
+    ctx.beginPath();
+    ctx.moveTo(this.x + 30, this.y - 30);
+    ctx.lineTo(this.x, this.y);
+    ctx.stroke();
+    ctx.fillStyle = '#fc3';
+    ctx.beginPath(); ctx.arc(this.x, this.y, 10, 0, Math.PI*2); ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+}
+
+function castMeteor(x, y) {
+  if (G.gold < METEOR_COST) return;
+  G.gold -= METEOR_COST;
+  G.projectiles.push(new Meteor(x, y));
+  G.meteorAiming = false;
+  document.getElementById('meteorBtn').classList.remove('armed');
+  // brief target marker
+  spawnParticles(x, y, '#f80', 6);
+}
+
 // ===== Particles =====
 function spawnParticles(x, y, color, n) {
   for (let i = 0; i < n; i++) {
@@ -517,6 +648,11 @@ function getEventPos(e) {
 }
 
 function onTap(x, y) {
+  // Meteor aiming mode intercepts taps on canvas
+  if (G.meteorAiming) {
+    castMeteor(x, y);
+    return;
+  }
   const cell = cellAt(x, y);
   if (!cell) return;
   // tap existing tower → select
@@ -525,7 +661,7 @@ function onTap(x, y) {
     G.selectedTower = (G.selectedTower === existing) ? null : existing;
     G.selectedType = null;
     updateShopUI();
-    document.getElementById('sellBtn').classList.toggle('hidden', !G.selectedTower);
+    updateTowerButtons();
     return;
   }
   // place new tower
@@ -537,13 +673,34 @@ function onTap(x, y) {
     const tower = new Tower(cell.c, cell.r, G.selectedType);
     G.towers.push(tower);
     G.occupied.add(cell.c+','+cell.r);
+    G.stats.towersBuilt++;
     spawnParticles(tower.x, tower.y, def.color, 12);
     updateShopUI();
     return;
   }
   // deselect
   G.selectedTower = null;
-  document.getElementById('sellBtn').classList.add('hidden');
+  updateTowerButtons();
+}
+
+function updateTowerButtons() {
+  const sell = document.getElementById('sellBtn');
+  const up = document.getElementById('upgradeBtn');
+  const t = G.selectedTower;
+  if (!t) {
+    sell.classList.add('hidden');
+    up.classList.add('hidden');
+    return;
+  }
+  sell.textContent = `VENDRE (${t.sellValue()})`;
+  sell.classList.remove('hidden');
+  if (t.level >= 3) {
+    up.classList.add('hidden');
+  } else {
+    up.classList.remove('hidden');
+    up.textContent = `LVL ${t.level+1} (${t.upgradeCost()})`;
+    up.disabled = G.gold < t.upgradeCost();
+  }
 }
 
 function setupInput() {
@@ -592,14 +749,36 @@ function setupInput() {
     G.towers = G.towers.filter(x => x !== t);
     spawnParticles(t.x, t.y, '#fc3', 10);
     G.selectedTower = null;
-    document.getElementById('sellBtn').classList.add('hidden');
+    updateTowerButtons();
     updateShopUI();
+  });
+
+  document.getElementById('upgradeBtn').addEventListener('click', () => {
+    if (!G.selectedTower) return;
+    if (G.selectedTower.upgrade()) {
+      spawnParticles(G.selectedTower.x, G.selectedTower.y, '#fc3', 14);
+      updateTowerButtons();
+      updateShopUI();
+    }
+  });
+
+  document.getElementById('speedBtn').addEventListener('click', () => {
+    G.speed = G.speed === 1 ? 2 : G.speed === 2 ? 3 : 1;
+    document.getElementById('speedBtn').textContent = G.speed + 'x';
+  });
+
+  document.getElementById('meteorBtn').addEventListener('click', () => {
+    if (!G.running) return;
+    if (G.gold < METEOR_COST) return;
+    G.meteorAiming = !G.meteorAiming;
+    document.getElementById('meteorBtn').classList.toggle('armed', G.meteorAiming);
   });
 
   document.getElementById('startBtn').addEventListener('click', () => {
     document.getElementById('msg').classList.add('hidden');
     G.running = true;
     document.getElementById('waveBtn').classList.remove('hidden');
+    document.getElementById('meteorBtn').classList.remove('hidden');
   });
 
   window.addEventListener('resize', layout);
@@ -609,11 +788,26 @@ function setupInput() {
 function showMessage(title, body, btnLabel, onClick) {
   const m = document.getElementById('msg');
   m.querySelector('h1').textContent = title;
-  m.querySelector('p').textContent = body;
+  m.querySelector('p').innerHTML = body;
   const btn = m.querySelector('button');
   btn.textContent = btnLabel;
   btn.onclick = onClick;
   m.classList.remove('hidden');
+}
+
+function showRunSummary(victory) {
+  const newRecord = G.wave > G.best.wave;
+  saveBest();
+  const lines = [
+    `Le donjon est tombe a la vague ${G.wave}.`,
+    `<br><br>Vague atteinte : <b>${G.wave}</b>${newRecord ? ' \u{1F3C6} NOUVEAU RECORD' : ''}`,
+    `<br>Ennemis abattus : <b>${G.stats.kills}</b>`,
+    `<br>Tours construites : <b>${G.stats.towersBuilt}</b>`,
+    `<br>Or gagne : <b>${G.stats.goldEarned}</b>`,
+    `<br>Degats infliges : <b>${Math.floor(G.stats.dmgDealt)}</b>`,
+    `<br><br>Meilleur record : vague <b>${G.best.wave}</b>`
+  ];
+  showMessage('DEFAITE', lines.join(''), 'REJOUER', () => location.reload());
 }
 
 // ===== Render =====
@@ -740,6 +934,7 @@ function render() {
 // ===== Main Loop =====
 function update(dt) {
   if (!G.running) return;
+  dt *= G.speed;
   G.time += dt;
   updateSpawning(dt);
   for (const t of G.towers) t.update(dt);
@@ -748,23 +943,35 @@ function update(dt) {
   updateParticles(dt);
   G.enemies = G.enemies.filter(e => !e.dead && !e.reached);
   G.projectiles = G.projectiles.filter(p => !p.dead);
-  // wave done?
-  if (G.running && !G.spawnQueue.length && !G.enemies.length) {
-    document.getElementById('waveBtn').classList.toggle('hidden', G.wave >= WAVES.length);
+  // wave done? in endless mode, never auto-end
+  const waveDone = !G.spawnQueue.length && !G.enemies.length;
+  if (waveDone) {
+    document.getElementById('waveBtn').classList.remove('hidden');
+    updateWavePreview();
   }
-  // game over / victory
+  // game over: HP gone
   if (G.hp <= 0 && !G.gameOver) {
     G.gameOver = true; G.running = false;
-    showMessage('DEFAITE', `Le donjon est tombe a la vague ${G.wave}.`, 'REJOUER', () => location.reload());
+    saveBest();
+    showRunSummary(false);
   }
-  if (G.wave >= WAVES.length && !G.spawnQueue.length && !G.enemies.length && !G.victory && G.running) {
-    G.victory = true; G.running = false;
-    showMessage('VICTOIRE', `Vous avez resiste aux ${WAVES.length} vagues !`, 'REJOUER', () => location.reload());
+  // milestone notification at end of wave 10 (endless continues)
+  if (waveDone && G.wave === WAVES.length && !G.victory && G.running) {
+    G.victory = true;
+    G.gold += 200;
+    spawnParticles(G.w/2, G.h/2, '#5fa', 40);
   }
   // UI
   document.getElementById('hp').textContent = Math.max(0, G.hp);
   document.getElementById('gold').textContent = G.gold;
-  document.getElementById('wave').textContent = `${G.wave}/${WAVES.length}`;
+  const waveLbl = G.wave > WAVES.length ? `${G.wave} (∞)` : `${G.wave}/${WAVES.length}`;
+  document.getElementById('wave').textContent = waveLbl;
+  // meteor button affordance
+  const mBtn = document.getElementById('meteorBtn');
+  mBtn.textContent = `METEOR (${METEOR_COST})`;
+  mBtn.classList.toggle('cooling', G.gold < METEOR_COST);
+  // upgrade button cost may need refresh (gold changed)
+  if (G.selectedTower) updateTowerButtons();
   updateShopUI();
 }
 
@@ -785,6 +992,12 @@ function init() {
   buildShop();
   setupInput();
   updateShopUI();
+  loadBest();
+  if (G.best.wave > 0) {
+    const p = document.querySelector('#msg p');
+    p.innerHTML = p.textContent +
+      `<br><br><span style="color:#fc3">Meilleure vague : <b>${G.best.wave}</b></span>`;
+  }
   requestAnimationFrame(loop);
 }
 
