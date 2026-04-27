@@ -63,6 +63,19 @@
   #backBtn { background: transparent !important; color: #8af !important; padding: 6px !important; font-size: 11px !important; margin-top: 4px; box-shadow: none !important; }
   .meta { font-size: 11px; color: #8af; margin: 6px 0; letter-spacing: 0.5px; }
   .meta b { color: #fc3; }
+  .achToast { position: fixed; top: calc(70px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%) translateY(-30px); display: flex; gap: 10px; padding: 10px 14px; background: linear-gradient(135deg, #2a2148 0%, #1a1530 100%); border: 2px solid #fc3; border-radius: 10px; box-shadow: 0 0 20px #fc36; z-index: 100; opacity: 0; transition: all 0.4s; max-width: 88%; pointer-events: none; }
+  .achToast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .achToast .ai { font-size: 28px; line-height: 1; align-self: center; }
+  .achToast .al { font-size: 9px; letter-spacing: 2px; color: #fc3; text-transform: uppercase; }
+  .achToast .an { font-size: 13px; font-weight: bold; color: #fff; margin-top: 2px; }
+  .achToast .ad { font-size: 10px; color: #aab; margin-top: 2px; line-height: 1.3; }
+  .achGrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin: 8px 0; max-height: 50vh; overflow-y: auto; }
+  .achCell { display: flex; gap: 6px; padding: 6px; background: #15102a; border: 1px solid #345; border-radius: 6px; align-items: center; }
+  .achCell.locked { opacity: 0.35; }
+  .achCell .ci { font-size: 18px; flex-shrink: 0; }
+  .achCell .cn { font-size: 10px; color: #fff; font-weight: bold; line-height: 1.2; }
+  .achCell .cd { font-size: 9px; color: #8af; line-height: 1.2; margin-top: 1px; }
+  .achBtn { background: rgba(252,195,51,0.2) !important; color: #fc3 !important; border: 1px solid #fc3 !important; box-shadow: none !important; padding: 6px 10px !important; font-size: 11px !important; }
   #speedBtn { position: absolute; top: calc(8px + env(safe-area-inset-top)); right: calc(10px + env(safe-area-inset-right)); padding: 4px 10px; background: rgba(74,170,255,0.2); border: 1px solid #4af; border-radius: 4px; color: #cef; font-weight: bold; font-size: 12px; z-index: 6; cursor: pointer; }
   #speedBtn:active { transform: scale(0.95); }
 </style>
@@ -135,7 +148,7 @@ const G = {
   speed:1, paused:false,
   meteorReady:true, meteorCharge:0, meteorAiming:false,
   stats:{ kills:0, goldEarned:0, towersBuilt:0, dmgDealt:0 },
-  best:{ wave:0, kills:0, totalXp:0 },
+  best:{ wave:0, kills:0, totalXp:0, achievements:{} },
   screen:'title',
   run:{ character:null, difficulty:null, mods:defaultMods() }
 };
@@ -193,11 +206,131 @@ const DIFFICULTIES = {
   }
 };
 
+// ===== Achievements =====
+const ACHIEVEMENTS = {
+  first_run:        { name:'PREMIER ASSAUT',     icon:'\u{1F3F0}', desc:'Lance ton premier run.' },
+  first_card:       { name:'TIRAGE INITIAL',     icon:'\u{1F0CF}', desc:'Pioche ta premiere carte.' },
+  card_collector_5: { name:'COLLECTIONNEUR',     icon:'\u{1F4DC}', desc:'Pioche 5 cartes dans un meme run.' },
+  card_collector_10:{ name:'BIBLIOPHILE',        icon:'\u{1F4DA}', desc:'Pioche 10 cartes dans un meme run.' },
+  wave_5:           { name:'DEFENSEUR',          icon:'\u{1F6E1}', desc:'Atteins la vague 5.' },
+  wave_10:          { name:'CASTELLAN',          icon:'\u{1F451}', desc:'Atteins la vague 10.' },
+  wave_20:          { name:'ETERNEL',            icon:'∞',         desc:'Atteins la vague 20 (mode infini).' },
+  wave_30:          { name:'CHAMPION',           icon:'\u{1F3C6}', desc:'Atteins la vague 30.' },
+  tower_lvl3:       { name:'MAITRE FORGERON',    icon:'\u{2B50}',  desc:'Ameliore une tour au niveau 3.' },
+  meteor_5kill:     { name:'FRAPPE METEORIQUE',  icon:'\u{2604}',  desc:'Tue 5+ ennemis avec un seul meteore.' },
+  tesla_4kill:      { name:'ECLAIR EN CHAINE',   icon:'\u{26A1}',  desc:'Tue 4 ennemis en une chaine Tesla.' },
+  rich_500:         { name:'OPULENCE',           icon:'\u{1F4B0}', desc:'Accumule 500 or simultanement.' },
+  rich_1000:        { name:'TRESOR ROYAL',       icon:'\u{1F451}', desc:'Accumule 1000 or simultanement.' },
+  flawless_wave:    { name:'IMPECCABLE',         icon:'\u{1F48E}', desc:'Termine une vague sans perdre de HP.' },
+  played_forgeron:  { name:'L\'ENCLUME',         icon:'\u{1F528}', desc:'Joue un run avec le Forgeron.' },
+  played_hacker:    { name:'L\'EXPLOIT',         icon:'\u{1F4BB}', desc:'Joue un run avec le Hacker.' },
+  played_druide:    { name:'L\'OSMOSE',          icon:'\u{1F33F}', desc:'Joue un run avec le Druide-Cyber.' },
+  hard_won:         { name:'EPREUVE',            icon:'\u{1F525}', desc:'Atteins la vague 10 en Difficile.' },
+  nightmare_won:    { name:'EFFROI',             icon:'\u{1F480}', desc:'Atteins la vague 10 en Cauchemar.' }
+};
+
+function triggerAchievement(id) {
+  if (!ACHIEVEMENTS[id]) return;
+  G.best.achievements = G.best.achievements || {};
+  if (G.best.achievements[id]) return;
+  G.best.achievements[id] = Date.now();
+  saveBest();
+  showAchievementToast(id);
+}
+
+function showAchievementToast(id) {
+  const a = ACHIEVEMENTS[id];
+  const t = document.createElement('div');
+  t.className = 'achToast';
+  t.innerHTML = `<div class="ai">${a.icon}</div><div class="ax"><div class="al">SUCCES DEBLOQUE</div><div class="an">${a.name}</div><div class="ad">${a.desc}</div></div>`;
+  document.body.appendChild(t);
+  setTimeout(() => t.classList.add('show'), 30);
+  setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 400); }, 3500);
+}
+
+// ===== Cards =====
+const CARDS = [
+  { id:'forge',     icon:'⚔',     name:'FORGE ENCHANTEE', rarity:'common',
+    desc:'Toutes les tours +20% degats.',
+    apply:() => { G.run.mods.towerDmgMul *= 1.2; } },
+  { id:'crystal',   icon:'\u{1F537}', name:'CRISTAL D\'ETERNITE', rarity:'common',
+    desc:'Portee globale +15%.',
+    apply:() => {
+      G.run.mods.towerRangeMul *= 1.15;
+      for (const t of G.towers) t.range *= 1.15;
+    } },
+  { id:'chest',     icon:'\u{1F4B0}', name:'COFFRE DU MARCHAND', rarity:'common',
+    desc:'+50 or immediatement.',
+    apply:() => { G.gold += 50; } },
+  { id:'tribute',   icon:'\u{1F451}', name:'TRIBUT DU ROI', rarity:'rare',
+    desc:'+15 or au debut de chaque vague.',
+    apply:() => { G.run.mods.goldPerWave += 15; } },
+  { id:'reinvest',  icon:'♻',     name:'REINVESTISSEMENT', rarity:'rare',
+    desc:'Vente rend 90% (au lieu de 60%).',
+    apply:() => { G.run.mods.sellRatio = 0.9; } },
+  { id:'plasma',    icon:'\u{1F4A5}', name:'SURCHARGE PLASMA', rarity:'rare',
+    desc:'Plasma : +30% degats, AOE +25%.',
+    apply:() => { G.run.mods.towerTypeDmgMul.plasma *= 1.3; G.run.mods.plasmaAoeMul *= 1.25; } },
+  { id:'chain',     icon:'⚡',     name:'CHAINE RESONNANTE', rarity:'rare',
+    desc:'Tesla : +1 cible chainee.',
+    apply:() => { G.run.mods.teslaChainBonus += 1; } },
+  { id:'quiver',    icon:'\u{1F3F9}', name:'CARQUOIS INFINI', rarity:'common',
+    desc:'Archer : cadence x1.5.',
+    apply:() => { G.run.mods.towerTypeRateMul.archer *= 1.5; } },
+  { id:'optic',     icon:'\u{1F52C}', name:'OPTIQUE LASER', rarity:'rare',
+    desc:'Laser : +60% degats.',
+    apply:() => { G.run.mods.towerTypeDmgMul.laser *= 1.6; } },
+  { id:'meteor',    icon:'☄',     name:'FLUX METEORIQUE', rarity:'rare',
+    desc:'Meteor : cout -50%, degats +30%.',
+    apply:() => { G.run.mods.meteorCostMul *= 0.5; G.run.mods.meteorDmgMul *= 1.3; } },
+  { id:'fortress',  icon:'\u{1F6E1}', name:'FORTERESSE', rarity:'common',
+    desc:'+5 HP maintenant.',
+    apply:() => { G.hp += 5; } },
+  { id:'regen',     icon:'\u{1F49A}', name:'REGENERATION', rarity:'rare',
+    desc:'+1 HP a chaque vague terminee.',
+    apply:() => { G.run.mods.hpPerWave += 1; } },
+  { id:'pact',      icon:'\u{1F480}', name:'PACTE SOMBRE', rarity:'epic',
+    desc:'Or +50%, mais -3 HP maintenant.',
+    apply:() => { G.run.mods.goldMul *= 1.5; G.hp = Math.max(1, G.hp - 3); } },
+  { id:'overclock', icon:'\u{1F525}', name:'OVERCLOCK', rarity:'epic',
+    desc:'Toutes les tours : cadence x1.3.',
+    apply:() => {
+      for (const k of Object.keys(G.run.mods.towerTypeRateMul)) G.run.mods.towerTypeRateMul[k] *= 1.3;
+    } },
+  { id:'unlock',    icon:'\u{1F511}', name:'CLE DE L\'ARSENAL', rarity:'epic',
+    desc:'Debloque la Tesla pour ce run.',
+    apply:() => { G.run.mods.teslaUnlocked = true; buildShop(); updateShopUI(); },
+    available:() => !G.run.mods.teslaUnlocked },
+];
+
+const RARITY_COLOR = { common:'#8af', rare:'#a7f', epic:'#fc3' };
+const RARITY_LABEL = { common:'Commun', rare:'Rare', epic:'Epique' };
+
+function drawCardChoices() {
+  const pool = CARDS.filter(c => !c.available || c.available());
+  const pick = [];
+  while (pick.length < 3 && pool.length) {
+    const w = pool.map(c => c.rarity === 'epic' ? 1 : c.rarity === 'rare' ? 3 : 5);
+    const total = w.reduce((a,b) => a+b, 0);
+    let r = Math.random() * total;
+    let i = 0;
+    while (r > w[i]) { r -= w[i]; i++; }
+    pick.push(pool[i]);
+    pool.splice(i, 1);
+  }
+  return pick;
+}
+
 function defaultMods() {
   return {
     towerDmgMul: 1, towerRangeMul: 1, upgradeCostMul: 1,
     enemyHpMul: 1, goldMul: 1, xpMul: 1,
-    startTowerLevel: 1, startHpMul: 1, teslaUnlocked: false
+    startTowerLevel: 1, startHpMul: 1, teslaUnlocked: false,
+    towerTypeDmgMul: { archer:1, laser:1, plasma:1, tesla:1 },
+    towerTypeRateMul: { archer:1, laser:1, plasma:1, tesla:1 },
+    plasmaAoeMul: 1, teslaChainBonus: 0,
+    meteorCostMul: 1, meteorDmgMul: 1,
+    sellRatio: 0.6, goldPerWave: 0, hpPerWave: 0
   };
 }
 
@@ -206,12 +339,17 @@ function applyMods(...sources) {
   for (const src of sources) {
     if (!src) continue;
     for (const k of Object.keys(src)) {
-      if (typeof src[k] === 'number' && typeof out[k] === 'number') {
-        // multiplicative for muls, additive otherwise
-        if (k.endsWith('Mul')) out[k] *= src[k];
-        else out[k] = src[k];
+      const sv = src[k];
+      if (typeof sv === 'number' && typeof out[k] === 'number') {
+        if (k.endsWith('Mul')) out[k] *= sv;
+        else if (k === 'goldPerWave' || k === 'hpPerWave' || k === 'teslaChainBonus') out[k] += sv;
+        else out[k] = sv;
+      } else if (sv && typeof sv === 'object' && out[k] && typeof out[k] === 'object') {
+        for (const kk of Object.keys(sv)) {
+          out[k][kk] = (out[k][kk] || 1) * sv[kk];
+        }
       } else {
-        out[k] = src[k];
+        out[k] = sv;
       }
     }
   }
@@ -418,6 +556,12 @@ function startWave() {
   G.spawnQueue = w.map(t => ({ type:t, hpMul }));
   G.spawnTimer = 0;
   G.wave++;
+  // start-of-wave bonuses (after wave 1+)
+  if (G.wave > 1) {
+    if (G.run.mods.goldPerWave) G.gold += G.run.mods.goldPerWave;
+    if (G.run.mods.hpPerWave) G.hp += G.run.mods.hpPerWave;
+  }
+  G.run._waveStartHp = G.hp;
   document.getElementById('waveBtn').classList.add('hidden');
   document.getElementById('wavePreview').classList.add('hidden');
 }
@@ -468,7 +612,7 @@ class Tower {
     for (let i = 1; i < this.level; i++) this.range *= 1.15;
   }
   upgradeCost() { return Math.floor(this.def.cost * (1 + this.level * 0.8) * G.run.mods.upgradeCostMul); }
-  sellValue() { return Math.floor(this.totalCost * 0.6); }
+  sellValue() { return Math.floor(this.totalCost * (G.run.mods.sellRatio || 0.6)); }
   upgrade() {
     const cost = this.upgradeCost();
     if (G.gold < cost || this.level >= 3) return false;
@@ -476,10 +620,19 @@ class Tower {
     this.totalCost += cost;
     this.level++;
     this.range *= 1.15;
+    if (this.level >= 3) triggerAchievement('tower_lvl3');
     return true;
   }
-  effDmg() { return this.def.dmg * (1 + (this.level - 1) * 0.6) * G.run.mods.towerDmgMul; }
-  effRate() { return this.def.rate * Math.pow(0.85, this.level - 1); }
+  effDmg() {
+    const m = G.run.mods;
+    return this.def.dmg * (1 + (this.level - 1) * 0.6) * m.towerDmgMul *
+      (m.towerTypeDmgMul[this.type] || 1);
+  }
+  effRate() {
+    const m = G.run.mods;
+    const tMul = m.towerTypeRateMul[this.type] || 1;
+    return this.def.rate * Math.pow(0.85, this.level - 1) / tMul;
+  }
   findTarget() {
     let best = null, bestProgress = -1;
     for (const e of G.enemies) {
@@ -512,18 +665,23 @@ class Tower {
     } else if (this.type === 'tesla') {
       const hit = new Set([tgt]);
       let cur = tgt, prev = { x:this.x, y:this.y };
-      const chain = this.def.chain + (this.level - 1);
+      const chain = this.def.chain + (this.level - 1) + (G.run.mods.teslaChainBonus || 0);
+      let killCount = 0;
       for (let i = 0; i < chain; i++) {
         if (!cur) break;
+        const wasAlive = !cur.dead;
         cur.damage(dmg);
+        if (wasAlive && cur.dead) killCount++;
         G.projectiles.push(new Beam(prev.x, prev.y, cur.x, cur.y, this.def.proj, true));
         prev = cur;
         cur = G.enemies.find(e => !e.dead && !e.reached && !hit.has(e) &&
           Math.hypot(e.x - prev.x, e.y - prev.y) < G.cell * 1.8);
         if (cur) hit.add(cur);
       }
+      if (killCount >= 4) triggerAchievement('tesla_4kill');
     } else {
-      G.projectiles.push(new Projectile(this.x, this.y, tgt, this.def.proj, dmg, this.def.aoe || 0));
+      const aoe = (this.def.aoe || 0) * (this.def.aoe ? G.run.mods.plasmaAoeMul : 1);
+      G.projectiles.push(new Projectile(this.x, this.y, tgt, this.def.proj, dmg, aoe));
     }
   }
   draw(ctx) {
@@ -642,13 +800,18 @@ class Meteor {
     if (k >= 1 && !this.exploded) {
       this.exploded = true;
       const r = METEOR_RADIUS * G.cell;
+      const dmg = METEOR_DMG * G.run.mods.meteorDmgMul;
+      let kc = 0;
       for (const e of G.enemies) {
         if (e.dead || e.reached) continue;
         if (Math.hypot(e.x - this.tx, e.y - this.ty) <= r) {
-          e.damage(METEOR_DMG);
+          const wasAlive = !e.dead;
+          e.damage(dmg);
           e.slow = 1.0;
+          if (wasAlive && e.dead) kc++;
         }
       }
+      if (kc >= 5) triggerAchievement('meteor_5kill');
       spawnParticles(this.tx, this.ty, '#f80', 30);
       spawnParticles(this.tx, this.ty, '#fc3', 20);
       this.dead = true;
@@ -667,13 +830,17 @@ class Meteor {
   }
 }
 
+function effectiveMeteorCost() {
+  return Math.max(10, Math.floor(METEOR_COST * (G.run.mods.meteorCostMul || 1)));
+}
+
 function castMeteor(x, y) {
-  if (G.gold < METEOR_COST) return;
-  G.gold -= METEOR_COST;
+  const cost = effectiveMeteorCost();
+  if (G.gold < cost) return;
+  G.gold -= cost;
   G.projectiles.push(new Meteor(x, y));
   G.meteorAiming = false;
   document.getElementById('meteorBtn').classList.remove('armed');
-  // brief target marker
   spawnParticles(x, y, '#f80', 6);
 }
 
@@ -875,7 +1042,7 @@ function setupInput() {
 
   document.getElementById('meteorBtn').addEventListener('click', () => {
     if (!G.running) return;
-    if (G.gold < METEOR_COST) return;
+    if (G.gold < effectiveMeteorCost()) return;
     G.meteorAiming = !G.meteorAiming;
     document.getElementById('meteorBtn').classList.toggle('armed', G.meteorAiming);
   });
@@ -899,17 +1066,47 @@ function showTitle() {
   G.screen = 'title';
   const m = document.getElementById('msg');
   m.classList.remove('wide');
+  const unlockedCount = Object.keys(G.best.achievements || {}).length;
+  const totalAch = Object.keys(ACHIEVEMENTS).length;
   const best = G.best.wave > 0
-    ? `<div class="meta">Meilleure vague : <b>${G.best.wave}</b> &nbsp; · &nbsp; XP total : <b>${G.best.totalXp||0}</b></div>`
-    : '';
+    ? `<div class="meta">Meilleure vague : <b>${G.best.wave}</b> &nbsp;·&nbsp; Succes : <b>${unlockedCount}/${totalAch}</b></div>`
+    : `<div class="meta">Succes : <b>${unlockedCount}/${totalAch}</b></div>`;
   m.innerHTML = `
     <h1>CYBER CASTLE DEFENSE</h1>
     <p>Defendez le donjon contre les hordes cyber-medievales.</p>
     ${best}
     <button id="newRunBtn">NOUVEAU RUN</button>
+    <button id="achBtn" class="achBtn">SUCCES (${unlockedCount}/${totalAch})</button>
   `;
   m.classList.remove('hidden');
   document.getElementById('newRunBtn').onclick = showCharSelect;
+  document.getElementById('achBtn').onclick = showAchievements;
+}
+
+function showAchievements() {
+  const m = document.getElementById('msg');
+  m.classList.add('wide');
+  const unlocked = G.best.achievements || {};
+  let cells = '';
+  for (const [id, a] of Object.entries(ACHIEVEMENTS)) {
+    const lk = unlocked[id] ? '' : 'locked';
+    cells += `
+      <div class="achCell ${lk}">
+        <div class="ci">${a.icon}</div>
+        <div>
+          <div class="cn">${a.name}</div>
+          <div class="cd">${a.desc}</div>
+        </div>
+      </div>`;
+  }
+  const tot = Object.keys(ACHIEVEMENTS).length;
+  const got = Object.keys(unlocked).length;
+  m.innerHTML = `
+    <h1>SUCCES (${got}/${tot})</h1>
+    <div class="achGrid">${cells}</div>
+    <button id="backBtn">← Retour</button>
+  `;
+  document.getElementById('backBtn').onclick = showTitle;
 }
 
 function showCharSelect() {
@@ -974,14 +1171,67 @@ function showDiffSelect() {
   document.getElementById('backBtn').onclick = showCharSelect;
 }
 
+function showCardDraft() {
+  G.screen = 'cardDraft';
+  G.running = false;
+  const choices = drawCardChoices();
+  G.run._currentChoices = choices;
+  const m = document.getElementById('msg');
+  m.classList.add('wide');
+  let cards = '';
+  for (let i = 0; i < choices.length; i++) {
+    const c = choices[i];
+    const col = RARITY_COLOR[c.rarity];
+    cards += `
+      <div class="pick-card card-choice" data-idx="${i}" style="--c:${col}">
+        <div class="pi" style="color:${col}">${c.icon}</div>
+        <div class="ptxt">
+          <div class="pname">${c.name} <span style="font-size:9px;color:${col};opacity:0.8">${RARITY_LABEL[c.rarity]}</span></div>
+          <div class="pdesc">${c.desc}</div>
+        </div>
+      </div>`;
+  }
+  m.innerHTML = `
+    <div class="stepLabel">Vague ${G.wave} terminee</div>
+    <h1>RECOMPENSE</h1>
+    <div class="meta">Choisis une carte (1 / 3)</div>
+    <div class="picker">${cards}</div>
+  `;
+  m.classList.remove('hidden');
+  for (const el of m.querySelectorAll('.card-choice')) {
+    el.onclick = () => pickCard(parseInt(el.dataset.idx, 10));
+  }
+}
+
+function pickCard(idx) {
+  const c = G.run._currentChoices[idx];
+  c.apply();
+  G.run.cardsTaken = G.run.cardsTaken || [];
+  G.run.cardsTaken.push(c.id);
+  triggerAchievement('first_card');
+  if (G.run.cardsTaken.length >= 5) triggerAchievement('card_collector_5');
+  if (G.run.cardsTaken.length >= 10) triggerAchievement('card_collector_10');
+  document.getElementById('msg').classList.add('hidden');
+  G.screen = 'playing';
+  G.running = true;
+  spawnParticles(G.w/2, G.h/2, RARITY_COLOR[c.rarity], 30);
+  updateShopUI();
+}
+
 function startRun() {
   const char = CHARACTERS[G.run.character];
   const diff = DIFFICULTIES[G.run.difficulty];
   G.run.mods = applyMods(char.mods, diff.mods);
-  // initial gold/hp adjusted by mods
+  G.run.cardsTaken = [];
+  G.run.lastDraftWave = 0;
+  // reset gameplay state
+  G.enemies = []; G.towers = []; G.projectiles = []; G.particles = [];
+  G.occupied.clear();
+  G.spawnQueue = []; G.wave = 0;
   G.gold = Math.floor(120 * G.run.mods.goldMul);
   G.hp = Math.max(1, Math.floor(20 * G.run.mods.startHpMul));
-  // shop locks tesla unless unlocked
+  G.gameOver = false; G.victory = false;
+  G.stats = { kills:0, goldEarned:0, towersBuilt:0, dmgDealt:0 };
   G.screen = 'playing';
   document.getElementById('msg').classList.add('hidden');
   G.running = true;
@@ -989,6 +1239,10 @@ function startRun() {
   document.getElementById('meteorBtn').classList.remove('hidden');
   buildShop();
   updateShopUI();
+  triggerAchievement('first_run');
+  if (G.run.character === 'forgeron') triggerAchievement('played_forgeron');
+  if (G.run.character === 'hacker') triggerAchievement('played_hacker');
+  if (G.run.character === 'druide') triggerAchievement('played_druide');
 }
 
 function showRunSummary(victory) {
@@ -1144,10 +1398,28 @@ function update(dt) {
   if (waveDone) {
     document.getElementById('waveBtn').classList.remove('hidden');
     updateWavePreview();
+    // check perfect-wave achievement
+    if (G.wave > 0 && G.run._waveStartHp != null && G.hp >= G.run._waveStartHp) {
+      triggerAchievement('flawless_wave');
+    }
+    // wave milestones
+    if (G.wave >= 5)  triggerAchievement('wave_5');
+    if (G.wave >= 10) triggerAchievement('wave_10');
+    if (G.wave >= 20) triggerAchievement('wave_20');
+    if (G.wave >= 30) triggerAchievement('wave_30');
+    // card draft every 2 waves
+    if (G.wave > 0 && G.wave !== G.run.lastDraftWave && G.wave % 2 === 0) {
+      G.run.lastDraftWave = G.wave;
+      setTimeout(showCardDraft, 350);
+    }
   }
   // game over: HP gone
   if (G.hp <= 0 && !G.gameOver) {
     G.gameOver = true; G.running = false;
+    if (G.wave >= 10) {
+      if (G.run.difficulty === 'hard') triggerAchievement('hard_won');
+      if (G.run.difficulty === 'nightmare') triggerAchievement('nightmare_won');
+    }
     saveBest();
     showRunSummary(false);
   }
@@ -1164,8 +1436,12 @@ function update(dt) {
   document.getElementById('wave').textContent = waveLbl;
   // meteor button affordance
   const mBtn = document.getElementById('meteorBtn');
-  mBtn.textContent = `METEOR (${METEOR_COST})`;
-  mBtn.classList.toggle('cooling', G.gold < METEOR_COST);
+  const mc = effectiveMeteorCost();
+  mBtn.textContent = `METEOR (${mc})`;
+  mBtn.classList.toggle('cooling', G.gold < mc);
+  // gold milestones
+  if (G.gold >= 500) triggerAchievement('rich_500');
+  if (G.gold >= 1000) triggerAchievement('rich_1000');
   // upgrade button cost may need refresh (gold changed)
   if (G.selectedTower) updateTowerButtons();
   updateShopUI();
